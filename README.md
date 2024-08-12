@@ -20,6 +20,8 @@
 
 ### Resources
 [Radio Arduino Library](https://www.mathertel.de/Arduino/RadioLibrary.aspx)
+[](https://github.com/esp-rs/espflash/tree/main/espflash#configuration-file)
+[](https://docs.espressif.com/projects/esp-idf/en/v5.3/esp32s3/api-guides/partition-tables.html)
 
 ### Notes
 DevKitC6: UART left (SLABtoUART)

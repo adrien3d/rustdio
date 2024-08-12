@@ -1,5 +1,7 @@
 name: Continuous Integration
 
+# https://github.com/esp-rs/xtensa-toolchain/tree/v1.5/?tab=readme-ov-file#inputs 
+
 on:
   push:
     paths-ignore:

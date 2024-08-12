@@ -1,0 +1,9 @@
+partition_table = "./partition-table.bin"
+
+[connection]
+
+[[usb_device]]
+vid = "1a86"
+pid = "55d3"
+
+[flash]
