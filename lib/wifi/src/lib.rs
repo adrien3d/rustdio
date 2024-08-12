@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 // use esp_idf_hal::delay::FreeRtos;
+use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::peripheral,
     sntp::{EspSntp, SyncStatus},
     wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi},
 };
-use esp_idf_svc::nvs::{EspNvsPartition, NvsDefault};
 use log::info;
 // use std::{thread::sleep, time::Duration};
 
@@ -15,7 +15,7 @@ pub fn wifi(
     pass: &str,
     modem: impl peripheral::Peripheral<P = esp_idf_svc::hal::modem::Modem> + 'static,
     sysloop: EspSystemEventLoop,
-    nvs_default_partition: EspNvsPartition<NvsDefault>
+    nvs_default_partition: EspNvsPartition<NvsDefault>,
 ) -> Result<Box<EspWifi<'static>>> {
     let mut auth_method = AuthMethod::WPA2Personal;
     if ssid.is_empty() {
@@ -85,7 +85,7 @@ pub fn wifi(
         Ok(ntp) => {
             while ntp.get_sync_status() != SyncStatus::Completed {}
             info!("NTP Time Sync Completed");
-        },
+        }
         Err(err) => info!("NTP Time Sync not done in a sec:{:#?}", err),
     }
 
