@@ -5,7 +5,10 @@ use embedded_svc::{
     http::{Headers, Method},
     io::Write,
 };
-use esp_idf_hal::io::Read;
+use esp_idf_hal::{
+    io::Read,
+    spi::{config::DriverConfig, Dma, SpiDriver},
+};
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
@@ -17,6 +20,7 @@ use esp_idf_svc::{
     nvs::*,
 };
 use log::{info, warn};
+use vs1053::VS1053;
 mod ntp;
 use postcard::{from_bytes, to_vec};
 use radios::Station;
@@ -28,6 +32,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tea5767::defs::{BandLimits, SoundMode, TEA5767};
+mod vs1053;
 use wifi::wifi;
 
 mod radios;
@@ -101,7 +106,7 @@ fn main() -> Result<()> {
         Err(e) => warn!("Couldn't get key {} because {:?}", key_raw_struct, e),
     };
 
-    let peripherals = Peripherals::take().unwrap();
+    let peripherals = Peripherals::take()?;
     let sysloop = EspSystemEventLoop::take()?;
 
     let app_config = CONFIG;
@@ -119,12 +124,12 @@ fn main() -> Result<()> {
     info!("Post led");
 
     // Initialize radio tuner
-    let sda = peripherals.pins.gpio6;
+    let mut sda = peripherals.pins.gpio6;
     let scl = peripherals.pins.gpio7;
-    let _sen = peripherals.pins.gpio0;
-    let _rst = peripherals.pins.gpio1;
-    let _gpio1 = peripherals.pins.gpio10;
-    let _gpio2 = peripherals.pins.gpio11;
+    // let _sen = peripherals.pins.gpio0;
+    // let _rst = peripherals.pins.gpio1;
+    // let _gpio1 = peripherals.pins.gpio10;
+    // let _gpio2 = peripherals.pins.gpio11;
     let config = I2cConfig::new().baudrate(400.kHz().into());
     let i2c = I2cDriver::new(peripherals.i2c0, sda, scl, &config)?;
 
@@ -144,6 +149,27 @@ fn main() -> Result<()> {
             return Err(err.into());
         }
     };
+
+    // Initialize DAC MP3
+    let xdcs_pin = peripherals.pins.gpio47; //(instead of 32 normally, but not available on yurobot)
+    let xcs_pin = peripherals.pins.gpio5;
+    // let en = EN/RST;
+    let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
+    let dreq_pin = peripherals.pins.gpio4;
+    let sck_pin = peripherals.pins.gpio18;
+    let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
+    let miso_pin = peripherals.pins.gpio19;
+
+    let spi_driver = SpiDriver::new(
+        peripherals.spi2,
+        sck_pin,
+        mosi_pin,
+        Some(miso_pin),
+        &DriverConfig::default().dma(Dma::Auto(4096)),
+    )?;
+
+    let mp3_decoder = VS1053::new(spi_driver, xrst_pin, xcs_pin, xdcs_pin, dreq_pin);
+
     let _wifi = wifi(
         app_config.wifi_ssid,
         app_config.wifi_psk,
@@ -151,6 +177,13 @@ fn main() -> Result<()> {
         sysloop,
         nvs_default_partition.clone(),
     )?;
+
+    let default_station_url =
+        // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
+        Station::get_web_url_from_id(last_configuration.last_station).unwrap_or("http://europe2.lmn.fm/europe2.mp3");
+    // mp3_decoder.begin();
+    // mp3_decoder.setVolume(last_configuration.last_volume);
+    // mp3_decoder.connecttohost("streambbr.ir-media-tec.com/berlin/mp3-128/vtuner_web_mp3/");
     // let mut radio = Si4703::new(i2c);
     // radio.enable_oscillator().map_err(|e| format!("Enable oscillator error: {:?}", e));
     // sleep(Duration::from_millis(500));
