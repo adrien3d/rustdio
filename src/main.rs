@@ -132,16 +132,18 @@ fn main() -> Result<()> {
         // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
         Station::get_fm_frequency_from_id(last_configuration.last_station).unwrap_or(105.5);
 
-    let radio_tuner = Arc::new(Mutex::new(
-        TEA5767::new(
-            i2c,
-            default_station_frequency,
-            BandLimits::EuropeUS,
-            SoundMode::Stereo,
-        )
-        .unwrap(),
-    ));
-
+    let radio_tuner = match TEA5767::new(
+        i2c,
+        default_station_frequency,
+        BandLimits::EuropeUS,
+        SoundMode::Stereo,
+    ) {
+        Ok(tuner) => Arc::new(Mutex::new(tuner)),
+        Err(err) => {
+            warn!("Unable to initialize TEA5767 I2C:{}", err);
+            return Err(err.into());
+        }
+    };
     let _wifi = wifi(
         app_config.wifi_ssid,
         app_config.wifi_psk,
