@@ -2,9 +2,10 @@ use std::{thread::sleep, time::Duration};
 
 use esp_idf_hal::{
     gpio::{InputPin, OutputPin, PinDriver},
-    spi::SpiDriver,
+    spi::{config, SpiDeviceDriver, SpiDriver},
+    units::FromValueType,
 };
-use log::warn;
+use log::{info, warn};
 
 pub struct VS1053<'d, XRST, XCS, XDCS, DREQ>
 where
@@ -16,7 +17,9 @@ where
     pub(crate) spi: SpiDriver<'d>,
     pub(crate) xrst_pin: XRST,
     pub(crate) xcs_pin: XCS,
+    #[allow(dead_code)]
     pub(crate) xdcs_pin: XDCS,
+    #[allow(dead_code)]
     pub(crate) dreq_pin: DREQ,
 }
 
@@ -57,7 +60,28 @@ where
         sleep(Duration::from_millis(10));
     }
 
-    pub fn begin(&mut self) {}
+    pub fn begin(&mut self) {
+        let config_1 = config::Config::new().baudrate(26_u32.MHz().into());
+        let mut spi_device =
+            match SpiDeviceDriver::new(&self.spi, Some(&mut self.xcs_pin), &config_1) {
+                Ok(spi_conn) => spi_conn,
+                Err(err) => {
+                    warn!("VS1053 begin failed because: {:?}", err);
+                    return;
+                }
+            };
+
+        let mut buffer = [0u8; 4];
+        match spi_device.transfer(&mut buffer, &[0xAA, 0xBB, 0xCC, 0xDD]) {
+            Ok(_res) => info!("spi transfer succeded"),
+            Err(err) => {
+                warn!("VS1053 begin failed because: {:?}", err);
+                return;
+            }
+        }
+
+        println!("Received: {:?}", buffer);
+    }
 
     // uint8_t VS1053::printVersion(){
     //     uint16_t reg = wram_read(0x1E02) & 0xFF;

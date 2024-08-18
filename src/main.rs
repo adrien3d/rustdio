@@ -124,7 +124,7 @@ fn main() -> Result<()> {
     info!("Post led");
 
     // Initialize radio tuner
-    let mut sda = peripherals.pins.gpio6;
+    let sda = peripherals.pins.gpio6;
     let scl = peripherals.pins.gpio7;
     // let _sen = peripherals.pins.gpio0;
     // let _rst = peripherals.pins.gpio1;
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
         &DriverConfig::default().dma(Dma::Auto(4096)),
     )?;
 
-    let mp3_decoder = VS1053::new(spi_driver, xrst_pin, xcs_pin, xdcs_pin, dreq_pin);
+    let mut mp3_decoder = VS1053::new(spi_driver, xrst_pin, xcs_pin, xdcs_pin, dreq_pin);
 
     let _wifi = wifi(
         app_config.wifi_ssid,
@@ -178,10 +178,10 @@ fn main() -> Result<()> {
         nvs_default_partition.clone(),
     )?;
 
-    let default_station_url =
+    let _default_station_url =
         // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
         Station::get_web_url_from_id(last_configuration.last_station).unwrap_or("http://europe2.lmn.fm/europe2.mp3");
-    // mp3_decoder.begin();
+    mp3_decoder.begin();
     // mp3_decoder.setVolume(last_configuration.last_volume);
     // mp3_decoder.connecttohost("streambbr.ir-media-tec.com/berlin/mp3-128/vtuner_web_mp3/");
     // let mut radio = Si4703::new(i2c);
