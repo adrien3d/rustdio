@@ -154,7 +154,7 @@ fn main() -> Result<()> {
     let xdcs_pin = peripherals.pins.gpio47; //(instead of 32 normally, but not available on yurobot)
     let xcs_pin = peripherals.pins.gpio5;
     // let en = EN/RST;
-    let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
+    //let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
     let dreq_pin = peripherals.pins.gpio4;
     let sck_pin = peripherals.pins.gpio18;
     let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
@@ -171,11 +171,11 @@ fn main() -> Result<()> {
     //VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
     // WiFiClient client;
     // uint8_t mp3buff[64];
-    let mut mp3_decoder = VS1053::new(spi_driver, xrst_pin, xcs_pin, xdcs_pin, dreq_pin);
+    let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
-    //     player.loadDefaultVs1053Patches(); 
+    //     player.loadDefaultVs1053Patches();
     // }
     // player.switchToMp3Mode();
     // player.setVolume(VOLUME);
