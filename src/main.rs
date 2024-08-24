@@ -137,7 +137,7 @@ fn main() -> Result<()> {
         // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
         Station::get_fm_frequency_from_id(last_configuration.last_station).unwrap_or(105.5);
 
-    let radio_tuner = match TEA5767::new(
+    let fm_radio_tuner = match TEA5767::new(
         i2c,
         default_station_frequency,
         BandLimits::EuropeUS,
@@ -168,7 +168,17 @@ fn main() -> Result<()> {
         &DriverConfig::default().dma(Dma::Auto(4096)),
     )?;
 
+    //VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
+    // WiFiClient client;
+    // uint8_t mp3buff[64];
     let mut mp3_decoder = VS1053::new(spi_driver, xrst_pin, xcs_pin, xdcs_pin, dreq_pin);
+
+    // player.begin();
+    // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
+    //     player.loadDefaultVs1053Patches(); 
+    // }
+    // player.switchToMp3Mode();
+    // player.setVolume(VOLUME);
 
     let _wifi = wifi(
         app_config.wifi_ssid,
@@ -221,7 +231,7 @@ fn main() -> Result<()> {
     })?;
 
     let led_clone = led.clone();
-    let radio_tuner_clone = radio_tuner.clone();
+    let fm_radio_tuner_clone = fm_radio_tuner.clone();
     server.fn_handler::<anyhow::Error, _>("/post-radio-form", Method::Post, move |mut req| {
         let len = req.content_len().unwrap_or(0) as usize;
 
@@ -244,10 +254,10 @@ fn main() -> Result<()> {
                 let fm_frequency = Station::get_fm_frequency_from_id(form.station);
                 match fm_frequency {
                     Some(freq) => {
-                        let mut radio_tuner = radio_tuner_clone
+                        let mut fm_radio_tuner = fm_radio_tuner_clone
                             .lock()
                             .map_err(|_| anyhow::anyhow!("Failed to lock radio tuner mutex"))?;
-                        radio_tuner
+                        fm_radio_tuner
                             .set_frequency(freq)
                             .map_err(|_| anyhow::anyhow!("Failed to set radio tuner frequency"))?;
                         info!("FM Radio set to: {:?}, frequency:{}", form, freq);
@@ -300,12 +310,12 @@ fn main() -> Result<()> {
         Ok(())
     })?;
 
-    // radio_tuner.set_frequency(fm_frequency).unwrap();
-    // let _ = radio_tuner.mute();
-    // radio_tuner.set_standby();
-    // radio_tuner.reset_standby();
-    // radio_tuner.set_soft_mute();
-    // radio_tuner.search_up();
+    // fm_radio_tuner.set_frequency(fm_frequency).unwrap();
+    // let _ = fm_radio_tuner.mute();
+    // fm_radio_tuner.set_standby();
+    // fm_radio_tuner.reset_standby();
+    // fm_radio_tuner.set_soft_mute();
+    // fm_radio_tuner.search_up();
 
     warn!("Server awaiting connection");
 
@@ -319,6 +329,12 @@ fn main() -> Result<()> {
         // Print Time
         info!("Time: {}", formatted);
         sleep(Duration::from_millis(1000));
+
+        // if (client.available() > 0) {
+        //     // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.
+        //     uint8_t bytesread = client.read(mp3buff, 64);
+        //     player.playChunk(mp3buff, bytesread);
+        // }
     }
 }
 

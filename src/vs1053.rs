@@ -2,9 +2,10 @@ use std::{thread::sleep, time::Duration};
 
 use esp_idf_hal::{
     gpio::{InputPin, OutputPin, PinDriver},
-    spi::{config, SpiDeviceDriver, SpiDriver},
+    spi::{config, SpiDeviceDriver, SpiDriver, SpiError},
     units::FromValueType,
 };
+use esp_idf_sys::touch_high_volt_t;
 use log::{info, warn};
 
 pub struct VS1053<'d, XRST, XCS, XDCS, DREQ>
@@ -46,6 +47,8 @@ where
         }
     }
 
+    //https://github.com/baldram/ESP_VS1053_Library/blob/master/src/VS1053.cpp
+
     pub fn reset(&mut self) {
         let mut xrst = match PinDriver::output(&mut self.xrst_pin) {
             Ok(pin) => pin,
@@ -83,32 +86,102 @@ where
         println!("Received: {:?}", buffer);
     }
 
-    // uint8_t VS1053::printVersion(){
-    //     uint16_t reg = wram_read(0x1E02) & 0xFF;
-    //     return reg;
-    // }
+    fn await_data_request(&mut self) {
+        let mut dreq = match PinDriver::input(&mut self.dreq_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Get DREQ pin failed because: {:?}", err);
+                return;
+            },
+        };
+        for _i in 0..= 2000 {
+            if !dreq.is_high() {
+                sleep(Duration::from_millis(10));
+            } else {
+                break
+            }
+        } 
+    }
 
-    // uint32_t VS1053::printChipID(){
-    //     uint32_t chipID = 0;
-    //     chipID =  wram_read(0x1E00) << 16;
-    //     chipID += wram_read(0x1E01);
-    //     return chipID;
-    // }
+    fn control_mode_on(&mut self) {
+        let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XDCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        xcs.set_low();
+        xdcs.set_high();
+    }
 
-    // pub fn send_command(&mut self, command: u8, argument: u16) {
-    //     // Set the command mode
-    //     self.cs.set_low().ok();
+    fn control_mode_off(&mut self) {
+        let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        xcs.set_high();
+    }
 
-    //     // Send the command
-    //     self.spi.write(&[command, (argument >> 8) as u8, argument as u8]).ok();
+    fn data_mode_on(&mut self) {
+        let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XDCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        xcs.set_high();
+        xdcs.set_low();
+    }
 
-    //     // Wait for the operation to finish
-    //     while self.dreq.is_low().ok() {}
+    fn data_mode_off(&mut self) {
+        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XDCS pin failed because: {:?}", err);
+                return;
+            }
+        };
+        xdcs.set_high();
+    }
 
-    //     self.cs.set_high().ok();
-    // }
+    fn read_register(&mut self, address: u8) -> Result<u16, SpiError> {
+        Ok(0)
+    }
 
-    // Additional methods for VS1053 interaction
+    fn sdi_send_buffer(&mut self, data: &u8, length: usize) {
+        
+    }
+
+    fn sdi_send_fillers(&mut self, length: usize) {
+        
+    }
+
+    fn wram_write(&mut self, address: u16, data: u16) {
+        
+    }
+
+    fn wram_read(&mut self, address: u16) -> Result<u16, SpiError> {
+        Ok(0)
+    }
 }
 
 // use esp_idf_hal::spi::{SpiDeviceDriver, SpiDriver};
