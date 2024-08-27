@@ -36,6 +36,8 @@ mod vs1053;
 use wifi::wifi;
 
 mod radios;
+
+#[derive(Debug)]
 #[toml_cfg::toml_config]
 pub struct Config {
     #[default("")]
@@ -110,6 +112,7 @@ fn main() -> Result<()> {
     let sysloop = EspSystemEventLoop::take()?;
 
     let app_config = CONFIG;
+    warn!("app_config:{:#?}", app_config);
 
     info!("Pre led");
     // Wrap the led in an Arc<Mutex<...>>

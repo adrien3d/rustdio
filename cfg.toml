@@ -1,12 +1,3 @@
-[iss]
-wifi_ssid = "Adrion"
-wifi_psk = "MarionUnixAdrien220522"
-
-# wifi_ssid = "iPhone d'Adrien"
-# wifi_psk = "7A8Y-Jzx7-hsgO-9Pee"
-
-# wifi_ssid = "Livebox-667C"
-# wifi_psk = "zkbHNwFQhA7fmYfsR5"
-
-# wifi_ssid = "Livebox-B1C0"
-# wifi_psk = "6h4vQJHpkSez5aPFPr"
+[rustdio]
+wifi_ssid = "MyWiFiName"
+wifi_psk = "MyWiFiPassword"
