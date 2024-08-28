@@ -103,7 +103,7 @@ static STATIONS: [Station; 18] = [
         web_url: "http://icecast.rtl.fr/rtl-1-44-128?listen=webCwsBCggNCQgLDQUGBAcGBg",
     },
     Station {
-        id: "rtl_2",
+        id: "rtl2",
         name: "RL2",
         fm_frequency: 105.9,
         web_url: "http://icecast.rtl2.fr/rtl2-1-44-128?listen=webCwsBCggNCQgLDQUGBAcGBg",

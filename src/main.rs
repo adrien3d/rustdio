@@ -7,7 +7,7 @@ use embedded_svc::{
 };
 use esp_idf_hal::{
     io::Read,
-    spi::{config::DriverConfig, Dma, SpiDriver},
+    spi::{config::DriverConfig, config::Config as SpiConfig, Dma, SpiDriver, SpiDeviceDriver},
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
@@ -163,6 +163,10 @@ fn main() -> Result<()> {
     let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
     let miso_pin = peripherals.pins.gpio19;
 
+    // Set up SPI configuration
+    let spi_config = SpiConfig::default().baudrate(12.MHz().into());
+
+    // Initialize SPI bus
     let spi_driver = SpiDriver::new(
         peripherals.spi2,
         sck_pin,
@@ -171,11 +175,15 @@ fn main() -> Result<()> {
         &DriverConfig::default().dma(Dma::Auto(4096)),
     )?;
 
+    // Create an SPI device driver on the bus
+    let spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &spi_config)?;
+
     //VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
     // WiFiClient client;
     // uint8_t mp3buff[64];
-    let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
+    //let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
+    let mut mp3_decoder = VS1053::new(spi_device, xdcs_pin, dreq_pin);
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
     //     player.loadDefaultVs1053Patches();
@@ -194,7 +202,8 @@ fn main() -> Result<()> {
     let _default_station_url =
         // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
         Station::get_web_url_from_id(last_configuration.last_station).unwrap_or("http://europe2.lmn.fm/europe2.mp3");
-    mp3_decoder.begin();
+    let res = mp3_decoder.begin();
+    info!("VS1053.begin():{:#?}", res);
     // mp3_decoder.setVolume(last_configuration.last_volume);
     // mp3_decoder.connecttohost("streambbr.ir-media-tec.com/berlin/mp3-128/vtuner_web_mp3/");
     // let mut radio = Si4703::new(i2c);
