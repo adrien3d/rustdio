@@ -5,10 +5,7 @@ use embedded_svc::{
     http::{Headers, Method},
     io::Write,
 };
-use esp_idf_hal::{
-    io::Read,
-    spi::{config::Config as SpiConfig, config::DriverConfig, Dma, SpiDeviceDriver, SpiDriver},
-};
+use esp_idf_hal::io::Read;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
@@ -154,36 +151,36 @@ fn main() -> Result<()> {
     };
 
     // Initialize DAC MP3
-    let xdcs_pin = peripherals.pins.gpio47; //(instead of 32 normally, but not available on yurobot)
-    let xcs_pin = peripherals.pins.gpio5;
-    // let en = EN/RST;
-    //let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
-    let dreq_pin = peripherals.pins.gpio4;
-    let sck_pin = peripherals.pins.gpio18;
-    let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
-    let miso_pin = peripherals.pins.gpio19;
+    // let xdcs_pin = peripherals.pins.gpio47; //(instead of 32 normally, but not available on yurobot)
+    // let xcs_pin = peripherals.pins.gpio5;
+    // // let en = EN/RST;
+    // //let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
+    // let dreq_pin = peripherals.pins.gpio4;
+    // let sck_pin = peripherals.pins.gpio18;
+    // let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
+    // let miso_pin = peripherals.pins.gpio19;
 
-    // Set up SPI configuration
-    let spi_config = SpiConfig::default().baudrate(12.MHz().into());
+    // // Set up SPI configuration
+    // let spi_config = SpiConfig::default().baudrate(12.MHz().into());
 
-    // Initialize SPI bus
-    let spi_driver = SpiDriver::new(
-        peripherals.spi2,
-        sck_pin,
-        mosi_pin,
-        Some(miso_pin),
-        &DriverConfig::default().dma(Dma::Auto(4096)),
-    )?;
+    // // Initialize SPI bus
+    // let spi_driver = SpiDriver::new(
+    //     peripherals.spi2,
+    //     sck_pin,
+    //     mosi_pin,
+    //     Some(miso_pin),
+    //     &DriverConfig::default().dma(Dma::Auto(4096)),
+    // )?;
 
-    // Create an SPI device driver on the bus
-    let spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &spi_config)?;
+    // // Create an SPI device driver on the bus
+    // let spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &spi_config)?;
 
     //VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
     // WiFiClient client;
     // uint8_t mp3buff[64];
     //let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
-    let mut mp3_decoder = VS1053::new(spi_device, xdcs_pin, dreq_pin);
+    let mut mp3_decoder = VS1053::new(peripherals)?;
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
     //     player.loadDefaultVs1053Patches();
