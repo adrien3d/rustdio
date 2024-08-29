@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Error, Result};
-use embedded_hal::spi::{SpiDevice, Operation};
+use anyhow::Result;
+use embedded_hal::spi::{Operation, SpiDevice};
 use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
-use esp_idf_sys::EspError;
 use log::warn;
 use std::{thread::sleep, time::Duration};
 
@@ -9,7 +8,7 @@ pub struct VS1053<SPI, /*XCS,*/ XDCS, DREQ> {
     spi: SPI,
     //xcs_pin: XCS,
     xdcs_pin: XDCS,
-    dreq_pin: DREQ
+    dreq_pin: DREQ,
 }
 
 impl<SPI, /*XCS,*/ XDCS, DREQ> VS1053<SPI, /*XCS,*/ XDCS, DREQ>
@@ -20,7 +19,11 @@ where
     DREQ: InputPin,
 {
     pub fn new(spi: SPI, /*xcs_pin: XCS,*/ xdcs_pin: XDCS, dreq_pin: DREQ) -> Self {
-        Self { spi, /*xcs_pin,*/ xdcs_pin, dreq_pin }
+        Self {
+            spi,
+            /*xcs_pin,*/ xdcs_pin,
+            dreq_pin,
+        }
     }
 
     fn set_dcs_pin(&mut self, is_high: bool) -> Result<(), DSPError> {
@@ -43,9 +46,12 @@ where
         let dreq = match PinDriver::input(&mut self.dreq_pin) {
             Ok(pin) => pin,
             Err(err) => {
-                warn!("Get DREQ pin for _await_data_request failed because: {:?}", err);
+                warn!(
+                    "Get DREQ pin for _await_data_request failed because: {:?}",
+                    err
+                );
                 Err(DSPError::UnableToGetDREQPin)
-            }?
+            }?,
         };
         for _i in 0..=2000 {
             if !dreq.is_high() {
@@ -115,10 +121,12 @@ where
         let mut buf = [0; 2];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
-        self.spi.transaction(&mut [
-            Operation::Write(&[0x90]),
-            Operation::Read(&mut buf),
-        ]).map_err(DSPError::Spi)?;
+        self.spi
+            .transaction(&mut [Operation::Write(&[0x90]), Operation::Read(&mut buf)])
+            .map_err(|error| {
+                log::warn!("Failed to make SPI transaction for begin: {error:?}");
+                DSPError::Spi
+            })?;
 
         Ok(buf)
     }
@@ -130,9 +138,12 @@ where
         let mut buf = [0; 0];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
-        self.spi.transaction(&mut [
-            Operation::Write(&[0x2, reg, msb, lsb])
-        ]).map_err(DSPError::Spi)?;
+        self.spi
+            .transaction(&mut [Operation::Write(&[0x2, reg, msb, lsb])])
+            .map_err(|error| {
+                log::warn!("Failed to make SPI transaction for write_register: {error:?}");
+                DSPError::Spi
+            })?;
 
         self.await_data_request()?;
         self.control_mode_off()?;
