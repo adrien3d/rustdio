@@ -7,7 +7,7 @@ use embedded_svc::{
 };
 use esp_idf_hal::{
     io::Read,
-    spi::{config::DriverConfig, config::Config as SpiConfig, Dma, SpiDriver, SpiDeviceDriver},
+    spi::{config::Config as SpiConfig, config::DriverConfig, Dma, SpiDeviceDriver, SpiDriver},
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
