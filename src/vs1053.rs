@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Error, Result};
 use embedded_hal::spi::{SpiDevice, Operation};
 use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
 use esp_idf_sys::EspError;
@@ -22,24 +23,41 @@ where
         Self { spi, /*xcs_pin,*/ xdcs_pin, dreq_pin }
     }
 
-    fn _await_data_request(&mut self) {
+    fn set_dcs_pin(&mut self, is_high: bool) -> Result<(), DSPError> {
+        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set XDCS pin failed because: {:?}", err);
+                return Err(DSPError::UnableToSetDCSPin);
+            }
+        };
+        if is_high {
+            xdcs.set_high();
+        } else {
+            xdcs.set_low();
+        }
+        Ok(())
+    }
+
+    fn await_data_request(&mut self) -> Result<(), DSPError> {
         let dreq = match PinDriver::input(&mut self.dreq_pin) {
             Ok(pin) => pin,
             Err(err) => {
                 warn!("Get DREQ pin for _await_data_request failed because: {:?}", err);
-                return;
-            }
+                Err(DSPError::UnableToGetDREQPin)
+            }?
         };
         for _i in 0..=2000 {
             if !dreq.is_high() {
-                sleep(Duration::from_millis(10));
+                sleep(Duration::from_millis(1));
             } else {
-                break;
+                return Ok(());
             }
         }
+        Err(DSPError::DataRequestTimeout)
     }
 
-    fn _control_mode_on(&mut self) -> Result<(), EspError> {
+    fn control_mode_on(&mut self) -> Result<(), DSPError> {
         // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
         //     Ok(pin) => pin,
         //     Err(err) => {
@@ -47,18 +65,11 @@ where
         //         return Err(err);
         //     }
         // };
-        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
-            Ok(pin) => pin,
-            Err(err) => {
-                warn!("Set XDCS pin for _control_mode_on failed because: {:?}", err);
-                return Err(err);
-            }
-        };
         // let _ = xcs.set_low();
-        xdcs.set_high()
+        self.set_dcs_pin(true)
     }
 
-    fn _control_mode_off(&mut self) -> Result<(), EspError> {
+    fn control_mode_off(&mut self) -> Result<(), DSPError> {
         // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
         //     Ok(pin) => pin,
         //     Err(err) => {
@@ -70,7 +81,7 @@ where
         Ok(())
     }
 
-    fn _data_mode_on(&mut self) -> Result<(), EspError> {
+    fn _data_mode_on(&mut self) -> Result<(), DSPError> {
         // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
         //     Ok(pin) => pin,
         //     Err(err) => {
@@ -78,29 +89,15 @@ where
         //         return Err(err);
         //     }
         // };
-        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
-            Ok(pin) => pin,
-            Err(err) => {
-                warn!("Set XDCS pin for _data_mode_on failed because: {:?}", err);
-                return Err(err);
-            }
-        };
         // let _ = xcs.set_high();
-        xdcs.set_low()
+        self.set_dcs_pin(false)
     }
 
-    fn _data_mode_off(&mut self) -> Result<(), EspError> {
-        let mut xdcs = match PinDriver::output(&mut self.xdcs_pin) {
-            Ok(pin) => pin,
-            Err(err) => {
-                warn!("Set XDCS pin for _data_mode_off failed because: {:?}", err);
-                return Err(err);
-            }
-        };
-        xdcs.set_high()
+    fn _data_mode_off(&mut self) -> Result<(), DSPError> {
+        self.set_dcs_pin(true)
     }
 
-    fn _read_register(&mut self, _address: u8) -> Result<u16, EspError> {
+    fn read_register(&mut self, _address: u8) -> Result<u16, DSPError> {
         Ok(0)
     }
 
@@ -110,25 +107,44 @@ where
 
     fn _wram_write(&mut self, _address: u16, _data: u16) {}
 
-    fn _wram_read(&mut self, _address: u16) -> Result<u16, EspError> {
+    fn _wram_read(&mut self, _address: u16) -> Result<u16, DSPError> {
         Ok(0)
     }
 
-    pub fn begin(&mut self) -> Result<[u8; 2], MyError<SPI::Error>> {
+    pub fn begin(&mut self) -> Result<[u8; 2], DSPError> {
         let mut buf = [0; 2];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
         self.spi.transaction(&mut [
             Operation::Write(&[0x90]),
             Operation::Read(&mut buf),
-        ]).map_err(MyError::Spi)?;
+        ]).map_err(DSPError::Spi)?;
 
         Ok(buf)
+    }
+
+    fn write_register(&mut self, reg: u8, value: u16) -> Result<(), DSPError> {
+        let lsb: u8 = (value & 0xFF) as u8;
+        let msb: u8 = (value >> 8) as u8;
+        self.control_mode_on()?;
+        let mut buf = [0; 0];
+
+        // `transaction` asserts and deasserts CS for us. No need to do it manually!
+        self.spi.transaction(&mut [
+            Operation::Write(&[0x2, reg, msb, lsb])
+        ]).map_err(DSPError::Spi)?;
+
+        self.await_data_request()?;
+        self.control_mode_off()?;
+        Ok(())
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum MyError<SPI> {
-    Spi(SPI),
-    // Add other errors for your driver here.
+pub enum DSPError {
+    Spi,
+    UnableToSetCSPin,
+    UnableToSetDCSPin,
+    UnableToGetDREQPin,
+    DataRequestTimeout,
 }
