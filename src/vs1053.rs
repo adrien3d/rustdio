@@ -118,6 +118,18 @@ where
     }
 
     pub fn begin(&mut self) -> Result<[u8; 2], DSPError> {
+        self.set_dcs_pin(true)?;
+        //set cs High
+        sleep(Duration::from_millis(100));
+        info!("Reset VS1053... \n");
+        self.set_dcs_pin(false)?;
+        //set cs Low
+        sleep(Duration::from_millis(500));
+        info!("End reset VS1053... \n");
+        self.set_dcs_pin(true)?;
+        //set cs High
+        sleep(Duration::from_millis(500));
+
         let mut buf = [0; 2];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
