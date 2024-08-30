@@ -1,58 +1,29 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use embedded_hal::spi::{Operation, SpiDevice};
-use esp_idf_hal::{
-    gpio::{Gpio4, Gpio47, Gpio5, InputPin, OutputPin, PinDriver},
-    prelude::Peripherals,
-    spi::{
-        config::{Config as SpiConfig, DriverConfig},
-        Dma, SpiDeviceDriver, SpiDriver,
-    },
-    units::FromValueType,
-};
-use log::{info, warn};
+use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
+use log::warn;
 use std::{thread::sleep, time::Duration};
 
-pub struct VS1053<'a, XCS, XDCS, DREQ> {
-    spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
-    low_speed_spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
-    xcs_pin: XCS,
+pub struct VS1053<SPI, /*XCS,*/ XDCS, DREQ> {
+    spi: SPI,
+    //xcs_pin: XCS,
     xdcs_pin: XDCS,
     dreq_pin: DREQ,
 }
 
-impl VS1053<'_, Gpio5, Gpio47, Gpio4> {
-    pub fn new(peripherals: Peripherals) -> Result<Self, Error> {
-        //let peripherals = Peripherals::take().unwrap();
-        let xdcs_pin = peripherals.pins.gpio47; //(instead of 32 normally, but not available on yurobot)
-        let xcs_pin = peripherals.pins.gpio5;
-        // let en = EN/RST;
-        //let xrst_pin = peripherals.pins.gpio0; //TODO: choose an appropriate pin, if needed
-        let dreq_pin = peripherals.pins.gpio4;
-        let sck_pin = peripherals.pins.gpio18;
-        let mosi_pin = peripherals.pins.gpio21; //(instead of 23 normally, but not available on yurobot)
-        let miso_pin = peripherals.pins.gpio19;
-
-        let spi_config = SpiConfig::default().baudrate(4.MHz().into());
-        let low_spi_config = SpiConfig::default().baudrate(200.kHz().into());
-        // Initialize SPI bus
-        let spi_driver = SpiDriver::new(
-            peripherals.spi2,
-            sck_pin,
-            mosi_pin,
-            Some(miso_pin),
-            &DriverConfig::default().dma(Dma::Auto(4096)),
-        )?;
-        // Create an SPI device driver on the bus
-        let spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &spi_config)?;
-        let low_spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &low_spi_config)?;
-
-        Ok(Self {
-            spi: spi_device,
-            low_speed_spi: low_spi_device,
-            xcs_pin,
-            xdcs_pin,
+impl<SPI, /*XCS,*/ XDCS, DREQ> VS1053<SPI, /*XCS,*/ XDCS, DREQ>
+where
+    SPI: SpiDevice,
+    //XCS: OutputPin,
+    XDCS: OutputPin,
+    DREQ: InputPin,
+{
+    pub fn new(spi: SPI, /*xcs_pin: XCS,*/ xdcs_pin: XDCS, dreq_pin: DREQ) -> Self {
+        Self {
+            spi,
+            /*xcs_pin,*/ xdcs_pin,
             dreq_pin,
-        })
+        }
     }
 
     fn set_dcs_pin(&mut self, is_high: bool) -> Result<(), DSPError> {
@@ -146,20 +117,7 @@ impl VS1053<'_, Gpio5, Gpio47, Gpio4> {
         Ok(0)
     }
 
-    //https://github.com/baldram/ESP_VS1053_Library/blob/master/src/VS1053.cpp#L149
     pub fn begin(&mut self) -> Result<[u8; 2], DSPError> {
-        self.set_dcs_pin(true)?;
-        //set cs High
-        sleep(Duration::from_millis(100));
-        info!("Reset VS1053... \n");
-        self.set_dcs_pin(false)?;
-        //set cs Low
-        sleep(Duration::from_millis(500));
-        info!("End reset VS1053... \n");
-        self.set_dcs_pin(true)?;
-        //set cs High
-        sleep(Duration::from_millis(500));
-
         let mut buf = [0; 2];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
