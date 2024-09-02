@@ -4,26 +4,45 @@ use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
 use log::warn;
 use std::{thread::sleep, time::Duration};
 
-pub struct VS1053<SPI, /*XCS,*/ XDCS, DREQ> {
+pub struct VS1053<SPI, XCS, XDCS, DREQ> {
     spi: SPI,
-    //xcs_pin: XCS,
+    low_spi: SPI,
+    xcs_pin: XCS,
     xdcs_pin: XDCS,
     dreq_pin: DREQ,
 }
 
-impl<SPI, /*XCS,*/ XDCS, DREQ> VS1053<SPI, /*XCS,*/ XDCS, DREQ>
+impl<SPI, XCS, XDCS, DREQ> VS1053<SPI, XCS, XDCS, DREQ>
 where
     SPI: SpiDevice,
-    //XCS: OutputPin,
+    XCS: OutputPin,
     XDCS: OutputPin,
     DREQ: InputPin,
 {
-    pub fn new(spi: SPI, /*xcs_pin: XCS,*/ xdcs_pin: XDCS, dreq_pin: DREQ) -> Self {
+    pub fn new(spi: SPI, low_spi: SPI, xcs_pin: XCS, xdcs_pin: XDCS, dreq_pin: DREQ) -> Self {
         Self {
             spi,
-            /*xcs_pin,*/ xdcs_pin,
+            low_spi,
+            xcs_pin,
+            xdcs_pin,
             dreq_pin,
         }
+    }
+
+    fn set_cs_pin(&mut self, is_high: bool) -> Result<(), DSPError> {
+        let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
+            Ok(pin) => pin,
+            Err(err) => {
+                warn!("Set DCS pin failed because: {:?}", err);
+                return Err(DSPError::UnableToSetCSPin);
+            }
+        };
+        if is_high {
+            xcs.set_high();
+        } else {
+            xcs.set_low();
+        }
+        Ok(())
     }
 
     fn set_dcs_pin(&mut self, is_high: bool) -> Result<(), DSPError> {
@@ -64,47 +83,21 @@ where
     }
 
     fn control_mode_on(&mut self) -> Result<(), DSPError> {
-        // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
-        //     Ok(pin) => pin,
-        //     Err(err) => {
-        //         warn!("Set XCS pin for _control_mode_on failed because: {:?}", err);
-        //         return Err(err);
-        //     }
-        // };
-        // let _ = xcs.set_low();
-        self.set_dcs_pin(true)
+        self.set_dcs_pin(true);
+        self.set_cs_pin(false)
     }
 
     fn control_mode_off(&mut self) -> Result<(), DSPError> {
-        // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
-        //     Ok(pin) => pin,
-        //     Err(err) => {
-        //         warn!("Set XCS pin for _control_mode_off failed because: {:?}", err);
-        //         return Err(err);
-        //     }
-        // };
-        // xcs.set_high()
-        Ok(())
+        self.set_cs_pin(true)
     }
 
     fn _data_mode_on(&mut self) -> Result<(), DSPError> {
-        // let mut xcs = match PinDriver::output(&mut self.xcs_pin) {
-        //     Ok(pin) => pin,
-        //     Err(err) => {
-        //         warn!("Set XCS pin for _data_mode_on failed because: {:?}", err);
-        //         return Err(err);
-        //     }
-        // };
-        // let _ = xcs.set_high();
+        self.set_cs_pin(true);
         self.set_dcs_pin(false)
     }
 
     fn _data_mode_off(&mut self) -> Result<(), DSPError> {
         self.set_dcs_pin(true)
-    }
-
-    fn read_register(&mut self, _address: u8) -> Result<u16, DSPError> {
-        Ok(0)
     }
 
     fn _sdi_send_buffer(&mut self, _data: &u8, _length: usize) {}
@@ -117,37 +110,60 @@ where
         Ok(0)
     }
 
-    pub fn begin(&mut self) -> Result<[u8; 2], DSPError> {
+    pub fn begin(&mut self) -> Result<(), DSPError> {
         self.set_dcs_pin(true)?;
-        //set cs High
+        self.set_cs_pin(true)?;
         sleep(Duration::from_millis(100));
-        info!("Reset VS1053... \n");
+        log::info!("Reset VS1053... \n");
         self.set_dcs_pin(false)?;
-        //set cs Low
+        self.set_cs_pin(false)?;
         sleep(Duration::from_millis(500));
-        info!("End reset VS1053... \n");
+        log::info!("End reset VS1053... \n");
         self.set_dcs_pin(true)?;
-        //set cs High
+        self.set_cs_pin(true)?;
         sleep(Duration::from_millis(500));
 
-        let mut buf = [0; 2];
+        if (testComm("Slow SPI,Testing VS1053 read/write registers...\n")) {
+            // SLOWSPI
+            self.write_register(SCI_AUDATA, 44101); // 44.1kHz stereo
+                                                    // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
+            self.write_register(SCI_CLOCKF, 6 << 12); // Normal clock settings multiplyer 3.0 = 12.2 MHz
+                                                      // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
 
-        // `transaction` asserts and deasserts CS for us. No need to do it manually!
+            // FASTSPI
+            self.write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_LINE1));
+            //TODO: testComm("Fast SPI, Testing VS1053 read/write registers again...\n");
+            sleep(Duration::from_millis(10));
+            self.await_data_request();
+            let end_fill_byte = self._wram_read(0x1E06) & 0xFF;
+            log::info!("endFillByte is %X\n", end_fill_byte);
+            //printDetails("After last clocksetting") ;
+            sleep(Duration::from_millis(100));
+        }
+        Ok(())
+    }
+
+    fn read_register(&mut self, address: u8) -> Result<u16, DSPError> {
+        let result: u16;
+
+        self.control_mode_on();
+        let mut buf = [0; 0];
         self.spi
-            .transaction(&mut [Operation::Write(&[0x90]), Operation::Read(&mut buf)])
+            .transaction(&mut [Operation::Write(&[0x3, address]), Operation::Read(&mut buf)])
             .map_err(|error| {
-                log::warn!("Failed to make SPI transaction for begin: {error:?}");
+                log::warn!("Failed to make SPI transaction for read_register: {error:?}");
                 DSPError::Spi
             })?;
 
-        Ok(buf)
+        self.await_data_request(); // Wait for DREQ to be HIGH again
+        self.control_mode_off();
+        Ok(u16::from_be_bytes(buf))
     }
 
     fn write_register(&mut self, reg: u8, value: u16) -> Result<(), DSPError> {
         let lsb: u8 = (value & 0xFF) as u8;
         let msb: u8 = (value >> 8) as u8;
         self.control_mode_on()?;
-        let mut buf = [0; 0];
 
         // `transaction` asserts and deasserts CS for us. No need to do it manually!
         self.spi

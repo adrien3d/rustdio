@@ -6,8 +6,12 @@ use embedded_svc::{
     io::Write,
 };
 use esp_idf_hal::{
+    gpio::AnyOutputPin,
     io::Read,
-    spi::{config::Config as SpiConfig, config::DriverConfig, Dma, SpiDeviceDriver, SpiDriver},
+    spi::{
+        config::{Config as SpiConfig, DriverConfig},
+        Dma, SpiDeviceDriver, SpiDriver,
+    },
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
@@ -164,7 +168,8 @@ fn main() -> Result<()> {
     let miso_pin = peripherals.pins.gpio19;
 
     // Set up SPI configuration
-    let spi_config = SpiConfig::default().baudrate(12.MHz().into());
+    let spi_config = SpiConfig::default().baudrate(4.MHz().into());
+    let low_spi_config = SpiConfig::default().baudrate(200.kHz().into());
 
     // Initialize SPI bus
     let spi_driver = SpiDriver::new(
@@ -176,14 +181,18 @@ fn main() -> Result<()> {
     )?;
 
     // Create an SPI device driver on the bus
-    let spi_device = SpiDeviceDriver::new(spi_driver, Some(xcs_pin), &spi_config)?;
+    let spi_device = SpiDeviceDriver::new(&spi_driver, None::<AnyOutputPin>, &spi_config)?;
+    let low_spi_device =
+        SpiDeviceDriver::new(&spi_driver, Option::<AnyOutputPin>::None, &low_spi_config)?;
+    // you can create different SpiDeviceDrivers, with different configs, and they all can have a different baudrate set on the same bus.
+    // If you want to control CS yourself you can just not provide a CS pin in the new() constructor since its a option
 
     //VS1053 player(VS1053_CS, VS1053_DCS, VS1053_DREQ);
     // WiFiClient client;
     // uint8_t mp3buff[64];
     //let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
-    let mut mp3_decoder = VS1053::new(spi_device, xdcs_pin, dreq_pin);
+    let mut mp3_decoder = VS1053::new(spi_device, low_spi_device, xcs_pin, xdcs_pin, dreq_pin);
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
     //     player.loadDefaultVs1053Patches();
