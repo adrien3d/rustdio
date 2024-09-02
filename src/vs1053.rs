@@ -4,12 +4,48 @@ use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
 use log::warn;
 use std::{thread::sleep, time::Duration};
 
+const VS1053_CHUNK_SIZE: u8 = 32;
+// SCI Register
+const SCI_MODE: u8 = 0x0;
+const SCI_STATUS: u8 = 0x1;
+const SCI_BASS: u8 = 0x2;
+const SCI_CLOCKF: u8 = 0x3;
+const SCI_DECODE_TIME: u8 = 0x4; // current decoded time in full seconds
+const SCI_AUDATA: u8 = 0x5;
+const SCI_WRAM: u8 = 0x6;
+const SCI_WRAMADDR: u8 = 0x7;
+const SCI_AIADDR: u8 = 0xA;
+const SCI_VOL: u8 = 0xB;
+const SCI_AICTRL0: u8 = 0xC;
+const SCI_AICTRL1: u8 = 0xD;
+const SCI_NUM_REGISTERS: u8 = 0xF;
+// SCI_MODE bits
+const SM_SDINEW: u8 = 11; // Bitnumber in SCI_MODE always on
+const SM_RESET: u8 = 2; // Bitnumber in SCI_MODE soft reset
+const SM_CANCEL: u8 = 3; // Bitnumber in SCI_MODE cancel song
+const SM_TESTS: u8 = 5; // Bitnumber in SCI_MODE for tests
+const SM_LINE1: u8 = 14; // Bitnumber in SCI_MODE for Line input
+const SM_STREAM: u8 = 6; // Bitnumber in SCI_MODE for Streaming Mode
+
+const ADDR_REG_GPIO_DDR_RW: u16 = 0xc017;
+const ADDR_REG_GPIO_VAL_R: u16 = 0xc018;
+const ADDR_REG_GPIO_ODATA_RW: u16 = 0xc019;
+const ADDR_REG_I2S_CONFIG_RW: u16 = 0xc040;
+
+macro_rules! _bv {
+    ($bit:expr) => {
+        1 << $bit
+    };
+}
+
 pub struct VS1053<SPI, XCS, XDCS, DREQ> {
     spi: SPI,
     low_spi: SPI,
     xcs_pin: XCS,
     xdcs_pin: XDCS,
     dreq_pin: DREQ,
+    current_volume: i8,
+    current_balance: i8,
 }
 
 impl<SPI, XCS, XDCS, DREQ> VS1053<SPI, XCS, XDCS, DREQ>
@@ -26,6 +62,8 @@ where
             xcs_pin,
             xdcs_pin,
             dreq_pin,
+            current_volume: 50,
+            current_balance: 0,
         }
     }
 
@@ -123,7 +161,7 @@ where
         self.set_cs_pin(true)?;
         sleep(Duration::from_millis(500));
 
-        if (testComm("Slow SPI,Testing VS1053 read/write registers...\n")) {
+        if (self.testComm("Slow SPI,Testing VS1053 read/write registers...\n".as_ptr())) {
             // SLOWSPI
             self.write_register(SCI_AUDATA, 44101); // 44.1kHz stereo
                                                     // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
@@ -131,12 +169,14 @@ where
                                                       // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
 
             // FASTSPI
-            self.write_register(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_LINE1));
+            self.write_register(SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_LINE1));
             //TODO: testComm("Fast SPI, Testing VS1053 read/write registers again...\n");
             sleep(Duration::from_millis(10));
             self.await_data_request();
-            let end_fill_byte = self._wram_read(0x1E06) & 0xFF;
-            log::info!("endFillByte is %X\n", end_fill_byte);
+
+            let efb = self._wram_read(0x1E06)?;
+            let end_fill_byte = efb & 0xFF;
+            log::info!("endFillByte is {:X}\n", end_fill_byte);
             //printDetails("After last clocksetting") ;
             sleep(Duration::from_millis(100));
         }
@@ -147,7 +187,7 @@ where
         let result: u16;
 
         self.control_mode_on();
-        let mut buf = [0; 0];
+        let mut buf: [u8; 2] = [0; 2];
         self.spi
             .transaction(&mut [Operation::Write(&[0x3, address]), Operation::Read(&mut buf)])
             .map_err(|error| {
@@ -176,6 +216,46 @@ where
         self.await_data_request()?;
         self.control_mode_off()?;
         Ok(())
+    }
+
+    fn testComm(&mut self, header: *const u8) -> bool {
+        // Test the communication with the VS1053 module.  The result wille be returned.
+        // If DREQ is low, there is problably no VS1053 connected.  Pull the line HIGH
+        // in order to prevent an endless loop waiting for this signal.  The rest of the
+        // software will still work, but readbacks from VS1053 will fail.
+        let i: i32; // Loop control
+        let (r1, r2, cnt): (u16, u16, u16) = (0, 0, 0);
+        let delta: u16 = 300; // 3 for fast SPI
+    
+        // if (!digitalRead(dreq_pin)) {
+        //     LOG("VS1053 not properly installed!\n");
+        //     // Allow testing without the VS1053 module
+        //     pinMode(dreq_pin, INPUT_PULLUP); // DREQ is now input with pull-up
+        //     return false;                    // Return bad result
+        // }
+        // // Further TESTING.  Check if SCI bus can write and read without errors.
+        // // We will use the volume setting for this.
+        // // Will give warnings on serial output if DEBUG is active.
+        // // A maximum of 20 errors will be reported.
+        // if (strstr(header, "Fast")) {
+        //     delta = 3; // Fast SPI, more loops
+        // }
+    
+        // LOG("%s", header);  // Show a header
+    
+        // for (i = 0; (i < 0xFFFF) && (cnt < 20); i += delta) {
+        //     writeRegister(SCI_VOL, i);         // Write data to SCI_VOL
+        //     r1 = read_register(SCI_VOL);        // Read back for the first time
+        //     r2 = read_register(SCI_VOL);        // Read back a second time
+        //     if (r1 != r2 || i != r1 || i != r2) // Check for 2 equal reads
+        //     {
+        //         LOG("VS1053 error retry SB:%04X R1:%04X R2:%04X\n", i, r1, r2);
+        //         cnt++;
+        //         delay(10);
+        //     }
+        //     yield(); // Allow ESP firmware to do some bookkeeping
+        // }
+        return cnt == 0; // Return the result
     }
 }
 
