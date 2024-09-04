@@ -2,7 +2,7 @@ use anyhow::Result;
 use embedded_hal::spi::{Operation, SpiDevice};
 use esp_idf_hal::gpio::{InputPin, OutputPin, PinDriver};
 use log::warn;
-use std::{thread::sleep, time::Duration};
+use std::{ffi::CStr, str, thread::sleep, time::Duration};
 
 const VS1053_CHUNK_SIZE: u8 = 32;
 // SCI Register
@@ -36,6 +36,26 @@ macro_rules! _bv {
     ($bit:expr) => {
         1 << $bit
     };
+}
+
+fn contains(str: *const u8, substr: &str) -> bool {
+    // Convert the raw pointer to a CStr
+    unsafe {
+        if str.is_null() {
+            return false;
+        }
+
+        // Create a CStr from the raw pointer
+        let c_str = CStr::from_ptr(str as *const i8);
+
+        // Convert the CStr to a Rust &str
+        if let Ok(str_slice) = c_str.to_str() {
+            // Check if the &str contains the substring "Fast"
+            return str_slice.contains(substr);
+        }
+    }
+
+    false
 }
 
 pub struct VS1053<SPI, XCS, XDCS, DREQ> {
@@ -76,9 +96,9 @@ where
             }
         };
         if is_high {
-            xcs.set_high();
+            let _ = xcs.set_high();
         } else {
-            xcs.set_low();
+            let _ = xcs.set_low();
         }
         Ok(())
     }
@@ -92,9 +112,9 @@ where
             }
         };
         if is_high {
-            xdcs.set_high();
+            let _ = xdcs.set_high();
         } else {
-            xdcs.set_low();
+            let _ = xdcs.set_low();
         }
         Ok(())
     }
@@ -121,7 +141,7 @@ where
     }
 
     fn control_mode_on(&mut self) -> Result<(), DSPError> {
-        self.set_dcs_pin(true);
+        self.set_dcs_pin(true)?;
         self.set_cs_pin(false)
     }
 
@@ -130,7 +150,7 @@ where
     }
 
     fn _data_mode_on(&mut self) -> Result<(), DSPError> {
-        self.set_cs_pin(true);
+        self.set_cs_pin(true)?;
         self.set_dcs_pin(false)
     }
 
@@ -142,10 +162,14 @@ where
 
     fn _sdi_send_fillers(&mut self, _length: usize) {}
 
-    fn _wram_write(&mut self, _address: u16, _data: u16) {}
+    fn _wram_write(&mut self, address: u16, data: u16) -> Result<(), DSPError> {
+        self.write_register(true, SCI_WRAMADDR, address)?;
+        self.write_register(true, SCI_WRAM, data)
+    }
 
-    fn _wram_read(&mut self, _address: u16) -> Result<u16, DSPError> {
-        Ok(0)
+    fn _wram_read(&mut self, address: u16) -> Result<u16, DSPError> {
+        self.write_register(true, SCI_WRAMADDR, address)?; // Start reading from WRAM
+        self.read_register(SCI_WRAM) // Read back result
     }
 
     pub fn begin(&mut self) -> Result<(), DSPError> {
@@ -161,18 +185,19 @@ where
         self.set_cs_pin(true)?;
         sleep(Duration::from_millis(500));
 
-        if (self.testComm("Slow SPI,Testing VS1053 read/write registers...\n".as_ptr())) {
+        if self.test_comm("Slow SPI,Testing VS1053 read/write registers...\n".as_ptr()) {
             // SLOWSPI
-            self.write_register(SCI_AUDATA, 44101); // 44.1kHz stereo
-                                                    // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
-            self.write_register(SCI_CLOCKF, 6 << 12); // Normal clock settings multiplyer 3.0 = 12.2 MHz
-                                                      // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
+            self.write_register(false, SCI_AUDATA, 44101)?; // 44.1kHz stereo
+                                                            // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
+            self.write_register(false, SCI_CLOCKF, 6 << 12)?; // Normal clock settings multiplyer 3.0 = 12.2 MHz
+                                                              // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
 
             // FASTSPI
-            self.write_register(SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_LINE1));
-            //TODO: testComm("Fast SPI, Testing VS1053 read/write registers again...\n");
+            self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_LINE1))?;
+            let _ =
+                self.test_comm("Fast SPI, Testing VS1053 read/write registers again...\n".as_ptr());
             sleep(Duration::from_millis(10));
-            self.await_data_request();
+            self.await_data_request()?;
 
             let efb = self._wram_read(0x1E06)?;
             let end_fill_byte = efb & 0xFF;
@@ -184,9 +209,7 @@ where
     }
 
     fn read_register(&mut self, address: u8) -> Result<u16, DSPError> {
-        let result: u16;
-
-        self.control_mode_on();
+        self.control_mode_on()?;
         let mut buf: [u8; 2] = [0; 2];
         self.spi
             .transaction(&mut [Operation::Write(&[0x3, address]), Operation::Read(&mut buf)])
@@ -195,66 +218,86 @@ where
                 DSPError::Spi
             })?;
 
-        self.await_data_request(); // Wait for DREQ to be HIGH again
-        self.control_mode_off();
+        self.await_data_request()?; // Wait for DREQ to be HIGH again
+        self.control_mode_off()?;
         Ok(u16::from_be_bytes(buf))
     }
 
-    fn write_register(&mut self, reg: u8, value: u16) -> Result<(), DSPError> {
+    fn write_register(&mut self, is_high_speed: bool, reg: u8, value: u16) -> Result<(), DSPError> {
         let lsb: u8 = (value & 0xFF) as u8;
         let msb: u8 = (value >> 8) as u8;
         self.control_mode_on()?;
 
-        // `transaction` asserts and deasserts CS for us. No need to do it manually!
-        self.spi
-            .transaction(&mut [Operation::Write(&[0x2, reg, msb, lsb])])
-            .map_err(|error| {
-                log::warn!("Failed to make SPI transaction for write_register: {error:?}");
-                DSPError::Spi
-            })?;
+        if is_high_speed {
+            self.spi
+                .transaction(&mut [Operation::Write(&[0x2, reg, msb, lsb])])
+                .map_err(|error| {
+                    log::warn!("Failed to make SPI transaction for write_register: {error:?}");
+                    DSPError::Spi
+                })?;
+        } else {
+            self.low_spi
+                .transaction(&mut [Operation::Write(&[0x2, reg, msb, lsb])])
+                .map_err(|error| {
+                    log::warn!("Failed to make SPI transaction for LS write_register: {error:?}");
+                    DSPError::Spi
+                })?;
+        }
 
         self.await_data_request()?;
         self.control_mode_off()?;
         Ok(())
     }
 
-    fn testComm(&mut self, header: *const u8) -> bool {
-        // Test the communication with the VS1053 module.  The result wille be returned.
-        // If DREQ is low, there is problably no VS1053 connected.  Pull the line HIGH
+    fn test_comm(&mut self, header: *const u8) -> bool {
+        // Test the communication with the VS1053 module.  The result will be returned.
+        // If DREQ is low, there is problably no VS1053 connected. Pull the line HIGH
         // in order to prevent an endless loop waiting for this signal.  The rest of the
         // software will still work, but readbacks from VS1053 will fail.
-        let i: i32; // Loop control
-        let (r1, r2, cnt): (u16, u16, u16) = (0, 0, 0);
-        let delta: u16 = 300; // 3 for fast SPI
-    
-        // if (!digitalRead(dreq_pin)) {
-        //     LOG("VS1053 not properly installed!\n");
-        //     // Allow testing without the VS1053 module
-        //     pinMode(dreq_pin, INPUT_PULLUP); // DREQ is now input with pull-up
-        //     return false;                    // Return bad result
-        // }
+        {
+            let dreq = match PinDriver::input(&mut self.dreq_pin) {
+                Ok(pin) => pin,
+                Err(err) => {
+                    warn!("Get DREQ pin for test_comm failed because: {:?}", err);
+                    None
+                }
+                .expect("DREQ test_comm failed"),
+            };
+            if !dreq.is_high() {
+                log::warn!("VS1053 not properly installed!\n");
+                //     pinMode(dreq_pin, INPUT_PULLUP); // DREQ is now input with pull-up
+                return false;
+            }
+        }
         // // Further TESTING.  Check if SCI bus can write and read without errors.
         // // We will use the volume setting for this.
         // // Will give warnings on serial output if DEBUG is active.
         // // A maximum of 20 errors will be reported.
-        // if (strstr(header, "Fast")) {
-        //     delta = 3; // Fast SPI, more loops
-        // }
-    
-        // LOG("%s", header);  // Show a header
-    
-        // for (i = 0; (i < 0xFFFF) && (cnt < 20); i += delta) {
-        //     writeRegister(SCI_VOL, i);         // Write data to SCI_VOL
-        //     r1 = read_register(SCI_VOL);        // Read back for the first time
-        //     r2 = read_register(SCI_VOL);        // Read back a second time
-        //     if (r1 != r2 || i != r1 || i != r2) // Check for 2 equal reads
-        //     {
-        //         LOG("VS1053 error retry SB:%04X R1:%04X R2:%04X\n", i, r1, r2);
-        //         cnt++;
-        //         delay(10);
-        //     }
-        //     yield(); // Allow ESP firmware to do some bookkeeping
-        // }
+
+        let (mut r1, mut r2, mut cnt): (u16, u16, u16) = (0, 0, 0);
+        let mut delta: usize = 300; // 3 for fast SPI
+        
+        if contains(header, "Fast") {
+            delta = 3; // Fast SPI, more loops
+        }
+
+        log::info!("header:{:?}", header);
+
+        for i in (0..0xFFFF).step_by(delta) {
+            if cnt >= 20 {
+                break;
+            }
+            let _ = self.write_register(true, SCI_VOL, i); // Write data to SCI_VOL
+            r1 = self.read_register(SCI_VOL).expect("First SCI_VOL test_comm read"); // Read back for the first time
+            r2 = self.read_register(SCI_VOL).expect("Second SCI_VOL test_comm read"); // Read back a second time
+            if r1 != r2 || i != r1 || i != r2 {
+                // Check for 2 equal reads
+                log::info!("VS1053 error retry SB:{:04X} R1:{:04X} R2:{:04X}\n", i, r1, r2);
+                cnt += 1;
+                sleep(Duration::from_millis(10));
+            }
+            //     yield(); // Allow ESP firmware to do some bookkeeping
+        }
         return cnt == 0; // Return the result
     }
 }
