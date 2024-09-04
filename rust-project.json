@@ -1,0 +1,15 @@
+{
+    "sysroot_src": "/Users/adrien/.rustup/toolchains/esp/lib",
+    "crates": [
+      {
+        "root_module": "src/main.rs",
+        "edition": "2021",
+        "deps": [],
+        "cfg": [],
+        "env": {
+          "RUSTFLAGS": "--target=xtensa-esp32s3-espidf"
+        },
+        "target": "xtensa-esp32s3-espidf"
+      }
+    ]
+  }
