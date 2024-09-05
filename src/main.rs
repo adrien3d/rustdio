@@ -193,12 +193,31 @@ fn main() -> Result<()> {
     //let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
     let mut mp3_decoder = VS1053::new(spi_device, low_spi_device, xcs_pin, xdcs_pin, dreq_pin);
+    log::info!(
+        "VS1053 connected:{:?}, chip version:{:?} volume:{:?}",
+        mp3_decoder.is_chip_connected(),
+        mp3_decoder.get_chip_version(),
+        mp3_decoder.get_volume()
+    );
+
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
     //     player.loadDefaultVs1053Patches();
     // }
     // player.switchToMp3Mode();
     // player.setVolume(VOLUME);
+
+    let res = mp3_decoder.begin();
+    log::info!("VS1053.begin():{:#?}", res);
+    mp3_decoder.switch_to_mp3_mode();
+    mp3_decoder.set_volume(last_configuration.last_volume);
+    mp3_decoder.set_balance(0);
+    log::info!(
+        "VS1053 MP3 decoder connected:{:?}, chip version:{:?} volume:{:?}",
+        mp3_decoder.is_chip_connected(),
+        mp3_decoder.get_chip_version(),
+        mp3_decoder.get_volume()
+    );
 
     let _wifi = wifi(
         app_config.wifi_ssid,
@@ -211,18 +230,15 @@ fn main() -> Result<()> {
     let _default_station_url =
         // Station::get_fm_frequency_from_id("france_info").unwrap_or(105.5);
         Station::get_web_url_from_id(last_configuration.last_station).unwrap_or("http://europe2.lmn.fm/europe2.mp3");
-    let res = mp3_decoder.begin();
-    info!("VS1053.begin():{:#?}", res);
-    // mp3_decoder.setVolume(last_configuration.last_volume);
+
+    // mp3_decoder.play_chunk(data, len);
+
     // mp3_decoder.connecttohost("streambbr.ir-media-tec.com/berlin/mp3-128/vtuner_web_mp3/");
     // let mut radio = Si4703::new(i2c);
     // radio.enable_oscillator().map_err(|e| format!("Enable oscillator error: {:?}", e));
     // sleep(Duration::from_millis(500));
     // radio.enable().map_err(|e| format!("Enable error: {:?}", e));
     // sleep(Duration::from_millis(110));
-
-    // ntp::Ntp::new();
-
     // radio.set_volume(Volume::Dbfsm28).map_err(|e| format!("Volume error: {:?}", e));
     // radio.set_deemphasis(DeEmphasis::Us50).map_err(|e| format!("Deemphasis error: {:?}", e));
     // radio.set_channel_spacing(ChannelSpacing::Khz100).map_err(|e| format!("Channel spacing error: {:?}", e));

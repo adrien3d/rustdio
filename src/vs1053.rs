@@ -12,28 +12,28 @@ const SCI_MODE: u8 = 0x0;
 const SCI_STATUS: u8 = 0x1;
 const SCI_BASS: u8 = 0x2;
 const SCI_CLOCKF: u8 = 0x3;
-const SCI_DECODE_TIME: u8 = 0x4; // current decoded time in full seconds
+// const SCI_DECODE_TIME: u8 = 0x4; // current decoded time in full seconds
 const SCI_AUDATA: u8 = 0x5;
 const SCI_WRAM: u8 = 0x6;
 const SCI_WRAMADDR: u8 = 0x7;
-const SCI_AIADDR: u8 = 0xA;
+// const SCI_AIADDR: u8 = 0xA;
 const SCI_VOL: u8 = 0xB;
-const SCI_AICTRL0: u8 = 0xC;
-const SCI_AICTRL1: u8 = 0xD;
+// const SCI_AICTRL0: u8 = 0xC;
+// const SCI_AICTRL1: u8 = 0xD;
 const SCI_NUM_REGISTERS: u8 = 0xF;
 
 // SCI_MODE bits
 const SM_SDINEW: u8 = 11; // Bitnumber in SCI_MODE always on
 const SM_RESET: u8 = 2; // Bitnumber in SCI_MODE soft reset
 const SM_CANCEL: u8 = 3; // Bitnumber in SCI_MODE cancel song
-const SM_TESTS: u8 = 5; // Bitnumber in SCI_MODE for tests
+                         // const SM_TESTS: u8 = 5; // Bitnumber in SCI_MODE for tests
 const SM_LINE1: u8 = 14; // Bitnumber in SCI_MODE for Line input
-const SM_STREAM: u8 = 6; // Bitnumber in SCI_MODE for Streaming Mode
+                         // const SM_STREAM: u8 = 6; // Bitnumber in SCI_MODE for Streaming Mode
 
 const ADDR_REG_GPIO_DDR_RW: u16 = 0xc017;
-const ADDR_REG_GPIO_VAL_R: u16 = 0xc018;
+// const ADDR_REG_GPIO_VAL_R: u16 = 0xc018;
 const ADDR_REG_GPIO_ODATA_RW: u16 = 0xc019;
-const ADDR_REG_I2S_CONFIG_RW: u16 = 0xc040;
+// const ADDR_REG_I2S_CONFIG_RW: u16 = 0xc040;
 
 macro_rules! _bv {
     ($bit:expr) => {
@@ -156,20 +156,85 @@ where
         self.set_cs_pin(true)
     }
 
-    fn _data_mode_on(&mut self) -> Result<(), DSPError> {
+    fn data_mode_on(&mut self) -> Result<(), DSPError> {
         self.set_cs_pin(true)?;
         self.set_dcs_pin(false)
     }
 
-    fn _data_mode_off(&mut self) -> Result<(), DSPError> {
+    fn data_mode_off(&mut self) -> Result<(), DSPError> {
         self.set_dcs_pin(true)
     }
 
-    fn _sdi_send_buffer(&mut self, _data: &u8, _length: usize) {}
+    fn sdi_send_buffer(&mut self, mut data: *mut u8, mut length: usize) {
+        let mut chunk_length: usize; // Length of chunk 32 byte or shorter
 
-    fn _sdi_send_fillers(&mut self, _length: usize) {}
+        self.data_mode_on();
+        while length > 0
+        // More to do?
+        {
+            self.await_data_request(); // Wait for space available
+                                       // Calculate the chunk length (up to 32 bytes)
+            chunk_length = if length > VS1053_CHUNK_SIZE.into() {
+                VS1053_CHUNK_SIZE.into()
+            } else {
+                length
+            };
+            length -= chunk_length;
+            unsafe {
+                //self.write_register(true, reg, value) equivalent of SPI.writeBytes(data, chunk_length);
 
-    fn _wram_write(&mut self, address: u16, data: u16) -> Result<(), DSPError> {
+                // Convert raw pointer to a slice
+                let data_slice = std::slice::from_raw_parts(data, chunk_length);
+
+                // Call write_bytes using the slice
+                self.write_bytes(data_slice)
+                    .expect("Error when write_bytes in sdi_send_buffer");
+
+                // Move the data pointer forward by chunk_length
+                data = data.add(chunk_length);
+            }
+        }
+        self.data_mode_off();
+    }
+
+    fn sdi_send_fillers(&mut self, mut length: usize) {
+        self.data_mode_on();
+
+        while length > 0 {
+            self.await_data_request(); // Wait for space available
+
+            let chunk_length = if length > VS1053_CHUNK_SIZE.into() {
+                VS1053_CHUNK_SIZE
+            } else {
+                length
+                    .try_into()
+                    .expect("Failed to put length in a u8 for sdi_send_fillers")
+            };
+
+            length -= chunk_length as usize;
+
+            for _ in 0..chunk_length {
+                let efb = self
+                    ._wram_read(0x1E06)
+                    .expect("Failed to wram_read in sdi_send_fillers");
+                let end_fill_byte = efb & 0xFF;
+                let lsb: u8 = (end_fill_byte & 0xFF) as u8;
+                let msb: u8 = (end_fill_byte >> 8) as u8;
+                self.spi
+                    .transaction(&mut [Operation::Write(&[msb, lsb])])
+                    .map_err(|error| {
+                        log::warn!(
+                            "Failed to make SPI transaction for sdi_send_fillers: {error:?}"
+                        );
+                        DSPError::Spi
+                    });
+            }
+        }
+
+        self.data_mode_off();
+    }
+
+    fn wram_write(&mut self, address: u16, data: u16) -> Result<(), DSPError> {
         self.write_register(true, SCI_WRAMADDR, address)?;
         self.write_register(true, SCI_WRAM, data)
     }
@@ -192,7 +257,9 @@ where
         self.set_cs_pin(true)?;
         sleep(Duration::from_millis(500));
 
+        log::info!("Pre test_comm slow");
         if self.test_comm("Slow SPI,Testing VS1053 read/write registers...\n".as_ptr()) {
+            log::info!("Post test_comm slow");
             // SLOWSPI
             self.write_register(false, SCI_AUDATA, 44101)?; // 44.1kHz stereo
                                                             // The next clocksetting allows SPI clocking at 5 MHz, 4 MHz is safe then.
@@ -201,15 +268,18 @@ where
 
             // FASTSPI
             self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_LINE1))?;
+            log::info!("Pre test_comm fast");
             let _ =
                 self.test_comm("Fast SPI, Testing VS1053 read/write registers again...\n".as_ptr());
             sleep(Duration::from_millis(10));
+            log::info!("Pre await_data_request");
             self.await_data_request()?;
+            log::info!("Post await_data_request");
 
             let efb = self._wram_read(0x1E06)?;
             let end_fill_byte = efb & 0xFF;
             log::info!("endFillByte is {:X}\n", end_fill_byte);
-            //printDetails("After last clocksetting") ;
+            self.print_details("After last clocksetting");
             sleep(Duration::from_millis(100));
         }
         Ok(())
@@ -256,6 +326,21 @@ where
         Ok(())
     }
 
+    fn write_bytes(&mut self, data: &[u8]) -> Result<(), DSPError> {
+        self.control_mode_on()?;
+
+        self.spi
+            .transaction(&mut [Operation::Write(data)])
+            .map_err(|error| {
+                log::warn!("Failed to make SPI transaction for write_bytes: {error:?}");
+                DSPError::Spi
+            })?;
+
+        self.await_data_request()?;
+        self.control_mode_off()?;
+        Ok(())
+    }
+
     fn test_comm(&mut self, header: *const u8) -> bool {
         // Test the communication with the VS1053 module.  The result will be returned.
         // If DREQ is low, there is problably no VS1053 connected. Pull the line HIGH
@@ -295,41 +380,53 @@ where
                 break;
             }
             let _ = self.write_register(true, SCI_VOL, i); // Write data to SCI_VOL
-            r1 = self.read_register(SCI_VOL).expect("First SCI_VOL test_comm read"); // Read back for the first time
-            r2 = self.read_register(SCI_VOL).expect("Second SCI_VOL test_comm read"); // Read back a second time
+            r1 = self
+                .read_register(SCI_VOL)
+                .expect("First SCI_VOL test_comm read"); // Read back for the first time
+            r2 = self
+                .read_register(SCI_VOL)
+                .expect("Second SCI_VOL test_comm read"); // Read back a second time
             if r1 != r2 || i != r1 || i != r2 {
                 // Check for 2 equal reads
-                log::info!("VS1053 error retry SB:{:04X} R1:{:04X} R2:{:04X}\n", i, r1, r2);
+                log::info!(
+                    "VS1053 error retry SB:{:04X} R1:{:04X} R2:{:04X}\n",
+                    i,
+                    r1,
+                    r2
+                );
                 cnt += 1;
                 sleep(Duration::from_millis(10));
+            } else {
+                break; // TODO: was not present in original library
             }
             // yield(); // Allow ESP firmware to do some bookkeeping
         }
         return cnt == 0; // Return the result
     }
 
-    fn set_volume(&mut self, vol: u8) -> Result<(), DSPError> {
+    pub fn set_volume(&mut self, vol: u8) -> Result<(), DSPError> {
         // Set volume.  Both left and right.
         // Input value is 0..100.  100 is the loudest.
         let (mut value_l, mut value_r); // Values to send to SCI_VOL
-    
-        self.current_volume = vol;                         // Save for later use
+
+        self.current_volume = vol; // Save for later use
         value_l = vol;
         value_r = vol;
-    
+
         if self.current_balance < 0 {
             value_r = max(0, vol.saturating_add(self.current_balance as u8));
         } else if self.current_balance > 0 {
             value_l = max(0, vol.saturating_sub(self.current_balance as u8));
         }
-    
+
         value_l = map(value_l.into(), 0, 100, 0xFE, 0x00) as u8; // 0..100% to left channel
         value_r = map(value_r.into(), 0, 100, 0xFE, 0x00) as u8; // 0..100% to right channel
-    
-        self.write_register(true, SCI_VOL, ((value_l as u16) << 8) | value_r as u16) // Volume left and right
+
+        self.write_register(true, SCI_VOL, ((value_l as u16) << 8) | value_r as u16)
+        // Volume left and right
     }
-    
-    fn set_balance(&mut self, balance: i8) {
+
+    pub fn set_balance(&mut self, balance: i8) {
         if balance > 100 {
             self.current_balance = 100;
         } else if balance < -100 {
@@ -338,61 +435,93 @@ where
             self.current_balance = balance;
         }
     }
-    
-    // fn setTone(uint8_t *rtone) { // Set bass/treble (4 nibbles)
-    //     // Set tone characteristics.  See documentation for the 4 nibbles.
-    //     uint16_t value = 0; // Value to send to SCI_BASS
-    //     int i;              // Loop control
-    
-    //     for (i = 0; i < 4; i++) {
-    //         value = (value << 4) | rtone[i]; // Shift next nibble in
-    //     }
-    //     writeRegister(SCI_BASS, value); // Volume left and right
-    // }
-    
-    fn get_volume(&mut self) -> u8 { // Get the current volume setting.
+
+    pub fn set_tone(&mut self, rtone: *mut u8) {
+        // Set bass/treble (4 nibbles) or : [u8; 4]
+        // Set tone characteristics.  See documentation for the 4 nibbles.
+        let mut value: u16 = 0; // Value to send to SCI_BASS
+
+        for i in 0..=3 {
+            unsafe {
+                // Dereference the pointer and get the value
+                let nibble = *rtone.wrapping_add(i) & 0xF;
+                value = (value << 4) | nibble as u16; // Shift next nibble in
+            }
+        }
+        self.write_register(true, SCI_BASS, value); // Volume left and right
+    }
+
+    pub fn get_volume(&mut self) -> u8 {
+        // Get the current volume setting.
         return self.current_volume;
     }
-    
-    fn get_balance(&mut self) -> i8 { // Get the current balance setting.
+
+    fn get_balance(&mut self) -> i8 {
+        // Get the current balance setting.
         return self.current_balance;
     }
-    
-    // fn startSong() {
-    //     sdi_send_fillers(10);
-    // }
-    
-    // fn playChunk(uint8_t *data, size_t len) {
-    //     sdi_send_buffer(data, len);
-    // }
-    
-    // fn stopSong() {
-    //     uint16_t modereg; // Read from mode register
-    //     int i;            // Loop control
-    
-    //     sdi_send_fillers(2052);
-    //     delay(10);
-    //     writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_CANCEL));
-    //     for (i = 0; i < 200; i++) {
-    //         sdi_send_fillers(32);
-    //         modereg = read_register(SCI_MODE); // Read status
-    //         if ((modereg & _BV(SM_CANCEL)) == 0) {
-    //             sdi_send_fillers(2052);
-    //             LOG("Song stopped correctly after %d msec\n", i * 10);
-    //             return;
-    //         }
-    //         delay(10);
-    //     }
-    //     printDetails("Song stopped incorrectly!");
-    // }
-    
-    // fn softReset() {
-    //     LOG("Performing soft-reset\n");
-    //     writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_RESET));
-    //     delay(10);
-    //     await_data_request();
-    // }
-    
+
+    fn start_song(&mut self) {
+        self.sdi_send_fillers(10);
+    }
+
+    //TODO: test and take this one or the second function
+    pub fn play_chunk(&mut self, data: &u8, len: usize) {
+        let data_ptr = data as *const u8 as *mut u8; // Cast &u8 to *mut u8
+        self.sdi_send_buffer(data_ptr, len);
+    }
+
+    pub fn play_chunk2(&mut self, data: &[u8], chunk_size: usize) -> Result<(), DSPError> {
+        let mut remaining = data.len();
+        let mut offset = 0;
+
+        self.data_mode_on();
+        while remaining > 0 {
+            let chunk_length = if remaining > chunk_size {
+                chunk_size
+            } else {
+                remaining
+            };
+            self.await_data_request()?;
+
+            // Send a chunk of data
+            self.write_bytes(&data[offset..offset + chunk_length])?;
+
+            remaining -= chunk_length;
+            offset += chunk_length;
+        }
+        self.data_mode_off();
+        Ok(())
+    }
+
+    fn stop_song(&mut self) {
+        let mut modereg: u16; // Read from mode register
+
+        self.sdi_send_fillers(2052);
+        sleep(Duration::from_millis(10));
+        self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_CANCEL));
+        for i in 0..=200 {
+            self.sdi_send_fillers(32);
+            modereg = self
+                .read_register(SCI_MODE)
+                .expect("Failed to read SCI_MODE in stop_song()"); // Read status
+            if (modereg & _bv!(SM_CANCEL)) == 0 {
+                self.sdi_send_fillers(2052);
+                log::info!("Song stopped correctly after {:?} msec\n", i * 10);
+                return;
+            }
+            sleep(Duration::from_millis(10));
+        }
+        self.print_details("Song stopped incorrectly!");
+    }
+
+    fn soft_reset(&mut self) {
+        log::info!("Performing soft-reset\n");
+        self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_RESET));
+        sleep(Duration::from_millis(10));
+        self.await_data_request();
+    }
+
     // /**
     //  * VLSI datasheet: "SM_STREAM activates VS1053b’s stream mode. In this mode, data should be sent with as
     //  * even intervals as possible and preferable in blocks of less than 512 bytes, and VS1053b makes
@@ -401,38 +530,37 @@ where
     //  * 160 kbit/s and VBR should not be used. For details, see Application Notes for VS10XX. This
     //  * mode only works with MP3 and WAV files."
     // */
-    
     // fn streamModeOn() {
     //     LOG("Performing streamModeOn\n");
     //     writeRegister(SCI_MODE, _BV(SM_SDINEW) | _BV(SM_STREAM));
     //     delay(10);
     //     await_data_request();
     // }
-    
+
     // fn streamModeOff() {
     //     LOG("Performing streamModeOff\n");
     //     writeRegister(SCI_MODE, _BV(SM_SDINEW));
     //     delay(10);
     //     await_data_request();
     // }
-    
-    // fn printDetails(const char *header) {
-    //     uint16_t regbuf[16];
-    //     uint8_t i;
-    //     (void)regbuf;
-    
-    //     LOG("%s", header);
-    //     LOG("REG   Contents\n");
-    //     LOG("---   -----\n");
-    //     for (i = 0; i <= SCI_num_registers; i++) {
-    //         regbuf[i] = read_register(i);
-    //     }
-    //     for (i = 0; i <= SCI_num_registers; i++) {
-    //         delay(5);
-    //         LOG("%3X - %5X\n", i, regbuf[i]);
-    //     }
-    // }
-    
+
+    fn print_details(&mut self, header: &str) {
+        let mut regbuf: [u16; 16] = [0; 16];
+
+        log::info!("{}", header);
+        log::info!("REG   Contents\n");
+        log::info!("---   -----\n");
+        for i in 0..=SCI_NUM_REGISTERS {
+            regbuf[i as usize] = self
+                .read_register(i as u8)
+                .expect("Failed to read_register in print_details()");
+        }
+        for i in 0..=SCI_NUM_REGISTERS {
+            sleep(Duration::from_millis(5));
+            log::info!("{}", &format!("{:3X} - {:5X}\n", i, regbuf[i as usize]));
+        }
+    }
+
     // /**
     //  * An optional switch.
     //  * Most VS1053 modules will start up in MIDI mode. The result is that there is no audio when playing MP3.
@@ -441,29 +569,30 @@ where
     //  *
     //  * Read more here: http://www.bajdi.com/lcsoft-vs1053-mp3-module/#comment-33773
     //  */
-    // fn switchToMp3Mode() {
-    //     wram_write(ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
-    //     wram_write(ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
-    //     delay(100);
-    //     LOG("Switched to mp3 mode\n");
-    //     softReset();
-    // }
-    
+    pub fn switch_to_mp3_mode(&mut self) {
+        // You can detect RTMIDI mode after hardware/software reset by checking AUDATA. If you see 44100/44101, RTMIDI has been activated,
+        self.wram_write(ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
+        self.wram_write(ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
+        sleep(Duration::from_millis(100));
+        log::info!("Switched to mp3 mode\n");
+        self.soft_reset();
+    }
+
     // fn disableI2sOut() {
     //     wram_write(ADDR_REG_I2S_CONFIG_RW, 0x0000);
-    
+
     //     // configure GPIO0 4-7 (I2S) as input (default)
     //     // leave other GPIOs unchanged
     //     uint16_t cur_ddr = wram_read(ADDR_REG_GPIO_DDR_RW);
     //     wram_write(ADDR_REG_GPIO_DDR_RW, cur_ddr & ~0x00f0);
     // }
-    
+
     // fn enableI2sOut(VS1053_I2S_RATE i2sRate) {
     //     // configure GPIO0 4-7 (I2S) as output
     //     // leave other GPIOs unchanged
     //     uint16_t cur_ddr = wram_read(ADDR_REG_GPIO_DDR_RW);
     //     wram_write(ADDR_REG_GPIO_DDR_RW, cur_ddr | 0x00f0);
-    
+
     //     uint16_t i2s_config = 0x000c; // Enable MCLK(3); I2S(2)
     //     switch (i2sRate) {
     //         case VS1053_I2S_RATE_192_KHZ:
@@ -477,32 +606,34 @@ where
     //             // 0x0000
     //             break;
     //     }
-    
+
     //     wram_write(ADDR_REG_I2S_CONFIG_RW, i2s_config );
     // }
-    
+
     // /**
     //  * A lightweight method to check if VS1053 is correctly wired up (power supply and connection to SPI interface).
     //  *
     //  * @return true if the chip is wired up correctly
     //  */
-    // bool VS1053::isChipConnected() {
-    //     uint16_t status = read_register(SCI_STATUS);
-    
-    //     return !(status == 0 || status == 0xFFFF);
-    // }
-    
+    pub fn is_chip_connected(&mut self) -> bool {
+        let status: u16 = self
+            .read_register(SCI_STATUS)
+            .expect("Failed to read SCI_STATUS for is_chip_connected()");
+        return !(status == 0 || status == 0xFFFF);
+    }
+
     // /**
     //  * get the Version Number for the VLSI chip
     //  * VLSI datasheet: 0 for VS1001, 1 for VS1011, 2 for VS1002, 3 for VS1003, 4 for VS1053 and VS8053,
-    //  * 5 for VS1033, 7 for VS1103, and 6 for VS1063. 
+    //  * 5 for VS1033, 7 for VS1103, and 6 for VS1063.
     //  */
-    // uint16_t VS1053::getChipVersion() {
-    //     uint16_t status = read_register(SCI_STATUS);
-           
-    //     return ( (status & 0x00F0) >> 4);
-    // }
-    
+    pub fn get_chip_version(&mut self) -> u16 {
+        let status: u16 = self
+            .read_register(SCI_STATUS)
+            .expect("Failed to read SCI_STATUS for get_chip_version()");
+        return (status & 0x00F0) >> 4;
+    }
+
     // /**
     //  * Provides current decoded time in full seconds (from SCI_DECODE_TIME register value)
     //  *
@@ -526,7 +657,7 @@ where
     // uint16_t VS1053::getDecodedTime() {
     //     return read_register(SCI_DECODE_TIME);
     // }
-    
+
     // /**
     //  * Clears decoded time (sets SCI_DECODE_TIME register to 0x00)
     //  *
@@ -539,7 +670,7 @@ where
     //     writeRegister(SCI_DECODE_TIME, 0x00);
     //     writeRegister(SCI_DECODE_TIME, 0x00);
     // }
-    
+
     // /**
     //  * Fine tune the data rate
     //  */
@@ -553,20 +684,20 @@ where
     //     // Write to AUDATA or CLOCKF checks rate and recalculates adjustment.
     //     writeRegister(SCI_AUDATA, read_register(SCI_AUDATA));
     // }
-    
+
     // /**
     //  * Load a patch or plugin
     //  *
     //  * Patches can be found on the VLSI Website http://www.vlsi.fi/en/support/software/vs10xxpatches.html
-    //  *  
-    //  * Please note that loadUserCode only works for compressed plugins (file ending .plg). 
-    //  * To include them, rename them to file ending .h 
-    //  * Please also note that, in order to avoid multiple definitions, if you are using more than one patch, 
+    //  *
+    //  * Please note that loadUserCode only works for compressed plugins (file ending .plg).
+    //  * To include them, rename them to file ending .h
+    //  * Please also note that, in order to avoid multiple definitions, if you are using more than one patch,
     //  * it is necessary to rename the name of the array plugin[] and the name of PLUGIN_SIZE to names of your choice.
-    //  * example: after renaming plugin[] to plugin_myname[] and PLUGIN_SIZE to PLUGIN_MYNAME_SIZE 
+    //  * example: after renaming plugin[] to plugin_myname[] and PLUGIN_SIZE to PLUGIN_MYNAME_SIZE
     //  * the method is called by player.loadUserCode(plugin_myname, PLUGIN_MYNAME_SIZE)
     //  * It is also possible to just rename the array plugin[] to a name of your choice
-    //  * example: after renaming plugin[] to plugin_myname[]  
+    //  * example: after renaming plugin[] to plugin_myname[]
     //  * the method is called by player.loadUserCode(plugin_myname, sizeof(plugin_myname)/sizeof(plugin_myname[0]))
     //  */
     // fn loadUserCode(const unsigned short* plugin, unsigned short plugin_size) {
@@ -589,7 +720,7 @@ where
     //         }
     //     }
     // }
-    
+
     // /**
     //  * Load the latest generic firmware patch
     //  */
