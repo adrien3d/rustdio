@@ -21,6 +21,12 @@ all: ## build, flash and monitor
 version: ## display version of rustdio
 	@echo $(VERSION)
 
+clippy:
+	cargo clippy --all-targets --all-features --workspace -- -D warnings
+
+fmt:
+	cargo fmt --all -- --check --color always
+
 # Absolutely awesome: http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help:
 	$(eval PADDING=$(shell grep -x -E '^[a-zA-Z_-]+:.*?##[\s]?.*$$' Makefile | awk '{ print length($$1)-1 }' | sort -n | tail -n 1))
