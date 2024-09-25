@@ -10,6 +10,7 @@ const VS1053_CHUNK_SIZE: u8 = 32;
 // SCI Register
 const SCI_MODE: u8 = 0x0;
 const SCI_STATUS: u8 = 0x1;
+#[allow(dead_code)]
 const SCI_BASS: u8 = 0x2;
 const SCI_CLOCKF: u8 = 0x3;
 // const SCI_DECODE_TIME: u8 = 0x4; // current decoded time in full seconds
@@ -25,6 +26,7 @@ const SCI_NUM_REGISTERS: u8 = 0xF;
 // SCI_MODE bits
 const SM_SDINEW: u8 = 11; // Bitnumber in SCI_MODE always on
 const SM_RESET: u8 = 2; // Bitnumber in SCI_MODE soft reset
+#[allow(dead_code)]
 const SM_CANCEL: u8 = 3; // Bitnumber in SCI_MODE cancel song
                          // const SM_TESTS: u8 = 5; // Bitnumber in SCI_MODE for tests
 const SM_LINE1: u8 = 14; // Bitnumber in SCI_MODE for Line input
@@ -168,12 +170,12 @@ where
     fn sdi_send_buffer(&mut self, mut data: *mut u8, mut length: usize) {
         let mut chunk_length: usize; // Length of chunk 32 byte or shorter
 
-        self.data_mode_on();
+        let _ = self.data_mode_on();
         while length > 0
         // More to do?
         {
-            self.await_data_request(); // Wait for space available
-                                       // Calculate the chunk length (up to 32 bytes)
+            let _ = self.await_data_request(); // Wait for space available
+                                               // Calculate the chunk length (up to 32 bytes)
             chunk_length = if length > VS1053_CHUNK_SIZE.into() {
                 VS1053_CHUNK_SIZE.into()
             } else {
@@ -194,14 +196,15 @@ where
                 data = data.add(chunk_length);
             }
         }
-        self.data_mode_off();
+        let _ = self.data_mode_off();
     }
 
+    #[allow(dead_code)]
     fn sdi_send_fillers(&mut self, mut length: usize) {
-        self.data_mode_on();
+        let _ = self.data_mode_on();
 
         while length > 0 {
-            self.await_data_request(); // Wait for space available
+            let _ = self.await_data_request(); // Wait for space available
 
             let chunk_length = if length > VS1053_CHUNK_SIZE.into() {
                 VS1053_CHUNK_SIZE
@@ -220,7 +223,8 @@ where
                 let end_fill_byte = efb & 0xFF;
                 let lsb: u8 = (end_fill_byte & 0xFF) as u8;
                 let msb: u8 = (end_fill_byte >> 8) as u8;
-                self.spi
+                let _ = self
+                    .spi
                     .transaction(&mut [Operation::Write(&[msb, lsb])])
                     .map_err(|error| {
                         log::warn!(
@@ -231,7 +235,7 @@ where
             }
         }
 
-        self.data_mode_off();
+        let _ = self.data_mode_off();
     }
 
     fn wram_write(&mut self, address: u16, data: u16) -> Result<(), DSPError> {
@@ -401,23 +405,21 @@ where
             }
             // yield(); // Allow ESP firmware to do some bookkeeping
         }
-        return cnt == 0; // Return the result
+        cnt == 0 // Return the result
     }
 
     pub fn set_volume(&mut self, vol: u8) -> Result<(), DSPError> {
         // Set volume.  Both left and right.
         // Input value is 0..100.  100 is the loudest.
-        let (mut value_l, mut value_r); // Values to send to SCI_VOL
+        let (mut value_l, mut value_r) = (vol, vol); // Values to send to SCI_VOL
 
         self.current_volume = vol; // Save for later use
-        value_l = vol;
-        value_r = vol;
 
-        if self.current_balance < 0 {
-            value_r = max(0, vol.saturating_add(self.current_balance as u8));
-        } else if self.current_balance > 0 {
-            value_l = max(0, vol.saturating_sub(self.current_balance as u8));
-        }
+        match self.current_balance {
+            balance if balance < 0 => value_r = max(0, vol.saturating_add(balance.unsigned_abs())),
+            balance if balance > 0 => value_l = max(0, vol.saturating_sub(balance as u8)),
+            _ => {}
+        };
 
         value_l = map(value_l.into(), 0, 100, 0xFE, 0x00) as u8; // 0..100% to left channel
         value_r = map(value_r.into(), 0, 100, 0xFE, 0x00) as u8; // 0..100% to right channel
@@ -448,19 +450,21 @@ where
                 value = (value << 4) | nibble as u16; // Shift next nibble in
             }
         }
-        self.write_register(true, SCI_BASS, value); // Volume left and right
+        let _ = self.write_register(true, SCI_BASS, value); // Volume left and right
     }
 
     pub fn get_volume(&mut self) -> u8 {
         // Get the current volume setting.
-        return self.current_volume;
+        self.current_volume
     }
 
+    #[allow(dead_code)]
     fn get_balance(&mut self) -> i8 {
         // Get the current balance setting.
-        return self.current_balance;
+        self.current_balance
     }
 
+    #[allow(dead_code)]
     fn start_song(&mut self) {
         self.sdi_send_fillers(10);
     }
@@ -475,7 +479,7 @@ where
         let mut remaining = data.len();
         let mut offset = 0;
 
-        self.data_mode_on();
+        let _ = self.data_mode_on();
         while remaining > 0 {
             let chunk_length = if remaining > chunk_size {
                 chunk_size
@@ -490,16 +494,17 @@ where
             remaining -= chunk_length;
             offset += chunk_length;
         }
-        self.data_mode_off();
+        let _ = self.data_mode_off();
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn stop_song(&mut self) {
         let mut modereg: u16; // Read from mode register
 
         self.sdi_send_fillers(2052);
         sleep(Duration::from_millis(10));
-        self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_CANCEL));
+        let _ = self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_CANCEL));
         for i in 0..=200 {
             self.sdi_send_fillers(32);
             modereg = self
@@ -517,9 +522,9 @@ where
 
     fn soft_reset(&mut self) {
         log::info!("Performing soft-reset\n");
-        self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_RESET));
+        let _ = self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_RESET));
         sleep(Duration::from_millis(10));
-        self.await_data_request();
+        let _ = self.await_data_request();
     }
 
     // /**
@@ -552,7 +557,7 @@ where
         log::info!("---   -----\n");
         for i in 0..=SCI_NUM_REGISTERS {
             regbuf[i as usize] = self
-                .read_register(i as u8)
+                .read_register(i)
                 .expect("Failed to read_register in print_details()");
         }
         for i in 0..=SCI_NUM_REGISTERS {
@@ -571,8 +576,8 @@ where
     //  */
     pub fn switch_to_mp3_mode(&mut self) {
         // You can detect RTMIDI mode after hardware/software reset by checking AUDATA. If you see 44100/44101, RTMIDI has been activated,
-        self.wram_write(ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
-        self.wram_write(ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
+        let _ = self.wram_write(ADDR_REG_GPIO_DDR_RW, 3); // GPIO DDR = 3
+        let _ = self.wram_write(ADDR_REG_GPIO_ODATA_RW, 0); // GPIO ODATA = 0
         sleep(Duration::from_millis(100));
         log::info!("Switched to mp3 mode\n");
         self.soft_reset();
@@ -619,7 +624,7 @@ where
         let status: u16 = self
             .read_register(SCI_STATUS)
             .expect("Failed to read SCI_STATUS for is_chip_connected()");
-        return !(status == 0 || status == 0xFFFF);
+        !(status == 0 || status == 0xFFFF)
     }
 
     // /**
@@ -631,7 +636,7 @@ where
         let status: u16 = self
             .read_register(SCI_STATUS)
             .expect("Failed to read SCI_STATUS for get_chip_version()");
-        return (status & 0x00F0) >> 4;
+        (status & 0x00F0) >> 4
     }
 
     // /**

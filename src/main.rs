@@ -210,7 +210,7 @@ fn main() -> Result<()> {
     let res = mp3_decoder.begin();
     log::info!("VS1053.begin():{:#?}", res);
     mp3_decoder.switch_to_mp3_mode();
-    mp3_decoder.set_volume(last_configuration.last_volume);
+    let _ = mp3_decoder.set_volume(last_configuration.last_volume);
     mp3_decoder.set_balance(0);
     log::info!(
         "VS1053 MP3 decoder connected:{:?}, chip version:{:?} volume:{:?}",
