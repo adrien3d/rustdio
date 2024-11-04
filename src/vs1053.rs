@@ -167,6 +167,7 @@ where
         self.set_dcs_pin(true)
     }
 
+    #[allow(dead_code)]
     fn sdi_send_buffer(&mut self, mut data: *mut u8, mut length: usize) {
         let mut chunk_length: usize; // Length of chunk 32 byte or shorter
 
@@ -438,6 +439,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_tone(&mut self, rtone: *mut u8) {
         // Set bass/treble (4 nibbles) or : [u8; 4]
         // Set tone characteristics.  See documentation for the 4 nibbles.
@@ -470,6 +472,7 @@ where
     }
 
     //TODO: test and take this one or the second function
+    #[allow(dead_code)]
     pub fn play_chunk(&mut self, data: &u8, len: usize) {
         let data_ptr = data as *const u8 as *mut u8; // Cast &u8 to *mut u8
         self.sdi_send_buffer(data_ptr, len);
