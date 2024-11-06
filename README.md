@@ -23,6 +23,16 @@
 [](https://github.com/esp-rs/espflash/tree/main/espflash#configuration-file)
 [](https://docs.espressif.com/projects/esp-idf/en/v5.3/esp32s3/api-guides/partition-tables.html)
 
+- SI4703
+https://docs.rs/si4703/latest/si4703/
+https://blog.eldruin.com/si4703-fm-radio-receiver-driver-in-rust/
+https://github.com/eldruin/driver-examples/blob/master/stm32f1-bluepill/examples/si4703-fm-radio-bp.rs
+https://github.com/mkhuthir/Si4703
+https://github.com/csdexter/Si4703/tree/master
+https://github.com/pu2clr/SI470X
+https://github.com/mathertel/Radio/blob/master/src/SI4703.cpp
+https://forum.arduino.cc/t/si4703-fm-tuner-question/1172302/3
+
 ### Notes
 DevKitC6: UART left (SLABtoUART)
 CopyS3: USB Left or COM right (WCH USB Serial ?)
