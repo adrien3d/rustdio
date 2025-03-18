@@ -34,7 +34,7 @@ jobs:
         uses: esp-rs/xtensa-toolchain@v1.5
         with:
           default: true
-          buildtargets: esp32s3
+          version: "1.85.0"
           ldproxy: true
       - name: Enable caching
         uses: Swatinem/rust-cache@v2
