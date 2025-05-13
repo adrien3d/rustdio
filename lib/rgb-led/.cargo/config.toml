@@ -1,7 +1,7 @@
 [build]
-target = "riscv32imc-esp-espidf"
+target = "xtensa-esp32s3-espidf"
 
-[target.riscv32imc-esp-espidf]
+[target.xtensa-esp32s3-espidf]
 linker = "ldproxy"
 runner = "espflash flash --monitor"
 # Future - necessary for the experimental "native build" of esp-idf-sys with ESP32C3
