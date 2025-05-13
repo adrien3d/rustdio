@@ -2,8 +2,9 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use core::str;
 use embedded_svc::{
-    http::{Headers, Method},
+    http::{client::Client as HttpClient, Headers, Method},
     io::Write,
+    utils::io,
 };
 use esp_idf_hal::{
     gpio::AnyOutputPin,
@@ -20,7 +21,10 @@ use esp_idf_svc::{
         io::EspIOError,
         prelude::*,
     },
-    http::server::{Configuration, EspHttpServer},
+    http::{
+        client::EspHttpConnection,
+        server::{Configuration as ServerConfiguration, EspHttpServer},
+    },
     nvs::*,
 };
 use log::{info, warn};
@@ -233,6 +237,8 @@ fn main() -> Result<()> {
 
     // mp3_decoder.play_chunk(data, len);
 
+    // https://github.com/schreibfaul1/ESP32-vs1053_ext/blob/master/src/vs1053_ext.cpp#L2285
+    // https://github.com/baldram/ESP_VS1053_Library/blob/master/examples/WebRadioDemo/WebRadioDemo.ino
     // mp3_decoder.connecttohost("streambbr.ir-media-tec.com/berlin/mp3-128/vtuner_web_mp3/");
     // let mut radio = Si4703::new(i2c);
     // radio.enable_oscillator().map_err(|e| format!("Enable oscillator error: {:?}", e));
@@ -244,7 +250,11 @@ fn main() -> Result<()> {
     // radio.set_channel_spacing(ChannelSpacing::Khz100).map_err(|e| format!("Channel spacing error: {:?}", e));
     // radio.unmute().map_err(|e: si4703::Error<esp_idf_hal::i2c::I2cError>| format!("Unmute error: {:?}", e));
 
-    let mut server = EspHttpServer::new(&Configuration::default())?;
+    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+    let request = client.request(Method::Get, _default_station_url, &[])?;
+    let mut response = request.submit()?;
+
+    let mut server = EspHttpServer::new(&ServerConfiguration::default())?;
 
     // Clone the Arc to pass to the closure
     let led_clone = led.clone();
@@ -365,7 +375,19 @@ fn main() -> Result<()> {
         let formatted = format!("{}", dt_now_utc.format("%d/%m/%Y %H:%M:%S"));
         // Print Time
         info!("Time: {}", formatted);
-        sleep(Duration::from_millis(1000));
+        // sleep(Duration::from_millis(1000));
+
+        // Buffer to hold the data
+        let mut buffer = [0u8; 64];
+        // Read 64 bytes into the buffer
+        let bytes_read = io::try_read_full(&mut response, &mut buffer).map_err(|e| e.0)?;
+        println!(
+            "Read {} bytes from stream: {:?}",
+            bytes_read,
+            &buffer[..bytes_read]
+        );
+        //mp3_decoder.play_chunk(&buffer[0], bytes_read);
+        let _ = mp3_decoder.play_chunk2(&buffer[..bytes_read], bytes_read);
 
         // if (client.available() > 0) {
         //     // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.

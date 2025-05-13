@@ -51,7 +51,7 @@ fn contains(str: *const u8, substr: &str) -> bool {
         }
 
         // Create a CStr from the raw pointer
-        let c_str = CStr::from_ptr(str as *const i8);
+        let c_str = CStr::from_ptr(str);
 
         // Convert the CStr to a Rust &str
         if let Ok(str_slice) = c_str.to_str() {
@@ -167,6 +167,7 @@ where
         self.set_dcs_pin(true)
     }
 
+    #[allow(dead_code)]
     fn sdi_send_buffer(&mut self, mut data: *mut u8, mut length: usize) {
         let mut chunk_length: usize; // Length of chunk 32 byte or shorter
 
@@ -271,7 +272,7 @@ where
                                                               // SPI Clock to 4 MHz. Now you can set high speed SPI clock.
 
             // FASTSPI
-            self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_LINE1))?;
+            self.write_register(true, SCI_MODE, (_bv!(SM_SDINEW)) | (_bv!(SM_LINE1)))?;
             log::info!("Pre test_comm fast");
             let _ =
                 self.test_comm("Fast SPI, Testing VS1053 read/write registers again...\n".as_ptr());
@@ -438,6 +439,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_tone(&mut self, rtone: *mut u8) {
         // Set bass/treble (4 nibbles) or : [u8; 4]
         // Set tone characteristics.  See documentation for the 4 nibbles.
@@ -470,6 +472,7 @@ where
     }
 
     //TODO: test and take this one or the second function
+    #[allow(dead_code)]
     pub fn play_chunk(&mut self, data: &u8, len: usize) {
         let data_ptr = data as *const u8 as *mut u8; // Cast &u8 to *mut u8
         self.sdi_send_buffer(data_ptr, len);
@@ -504,13 +507,13 @@ where
 
         self.sdi_send_fillers(2052);
         sleep(Duration::from_millis(10));
-        let _ = self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_CANCEL));
+        let _ = self.write_register(true, SCI_MODE, (_bv!(SM_SDINEW)) | (_bv!(SM_CANCEL)));
         for i in 0..=200 {
             self.sdi_send_fillers(32);
             modereg = self
                 .read_register(SCI_MODE)
                 .expect("Failed to read SCI_MODE in stop_song()"); // Read status
-            if (modereg & _bv!(SM_CANCEL)) == 0 {
+            if (modereg & (_bv!(SM_CANCEL))) == 0 {
                 self.sdi_send_fillers(2052);
                 log::info!("Song stopped correctly after {:?} msec\n", i * 10);
                 return;
@@ -522,7 +525,7 @@ where
 
     fn soft_reset(&mut self) {
         log::info!("Performing soft-reset\n");
-        let _ = self.write_register(true, SCI_MODE, _bv!(SM_SDINEW) | _bv!(SM_RESET));
+        let _ = self.write_register(true, SCI_MODE, (_bv!(SM_SDINEW)) | (_bv!(SM_RESET)));
         sleep(Duration::from_millis(10));
         let _ = self.await_data_request();
     }
