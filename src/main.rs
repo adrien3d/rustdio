@@ -196,13 +196,13 @@ fn main() -> Result<()> {
     // uint8_t mp3buff[64];
     //let mut mp3_decoder = VS1053::new(spi_driver, /*xrst_pin,*/ xcs_pin, xdcs_pin, dreq_pin);
 
-    let mut mp3_decoder = VS1053::new(spi_device, low_spi_device, xcs_pin, xdcs_pin, dreq_pin);
-    log::info!(
-        "VS1053 connected:{:?}, chip version:{:?} volume:{:?}",
-        mp3_decoder.is_chip_connected(),
-        mp3_decoder.get_chip_version(),
-        mp3_decoder.get_volume()
-    );
+    // let mut mp3_decoder = VS1053::new(spi_device, low_spi_device, xcs_pin, xdcs_pin, dreq_pin);
+    // log::info!(
+    //     "VS1053 connected:{:?}, chip version:{:?} volume:{:?}",
+    //     mp3_decoder.is_chip_connected(),
+    //     mp3_decoder.get_chip_version(),
+    //     mp3_decoder.get_volume()
+    // );
 
     // player.begin();
     // if (player.getChipVersion() == 4) { // Only perform an update if we really are using a VS1053, not. eg. VS1003
@@ -211,17 +211,17 @@ fn main() -> Result<()> {
     // player.switchToMp3Mode();
     // player.setVolume(VOLUME);
 
-    let res = mp3_decoder.begin();
-    log::info!("VS1053.begin():{:#?}", res);
-    mp3_decoder.switch_to_mp3_mode();
-    let _ = mp3_decoder.set_volume(last_configuration.last_volume);
-    mp3_decoder.set_balance(0);
-    log::info!(
-        "VS1053 MP3 decoder connected:{:?}, chip version:{:?} volume:{:?}",
-        mp3_decoder.is_chip_connected(),
-        mp3_decoder.get_chip_version(),
-        mp3_decoder.get_volume()
-    );
+    // let res = mp3_decoder.begin();
+    // log::info!("VS1053.begin():{:#?}", res);
+    // mp3_decoder.switch_to_mp3_mode();
+    // let _ = mp3_decoder.set_volume(last_configuration.last_volume);
+    // mp3_decoder.set_balance(0);
+    // log::info!(
+    //     "VS1053 MP3 decoder connected:{:?}, chip version:{:?} volume:{:?}",
+    //     mp3_decoder.is_chip_connected(),
+    //     mp3_decoder.get_chip_version(),
+    //     mp3_decoder.get_volume()
+    // );
 
     let _wifi = wifi(
         app_config.wifi_ssid,
@@ -250,9 +250,9 @@ fn main() -> Result<()> {
     // radio.set_channel_spacing(ChannelSpacing::Khz100).map_err(|e| format!("Channel spacing error: {:?}", e));
     // radio.unmute().map_err(|e: si4703::Error<esp_idf_hal::i2c::I2cError>| format!("Unmute error: {:?}", e));
 
-    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
-    let request = client.request(Method::Get, _default_station_url, &[])?;
-    let mut response = request.submit()?;
+    // let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+    // let request = client.request(Method::Get, _default_station_url, &[])?;
+    // let mut response = request.submit()?;
 
     let mut server = EspHttpServer::new(&ServerConfiguration::default())?;
 
@@ -363,6 +363,34 @@ fn main() -> Result<()> {
     // fm_radio_tuner.reset_standby();
     // fm_radio_tuner.set_soft_mute();
     // fm_radio_tuner.search_up();
+    let i2s_config = Config::default()
+        .data_format(DataFormat::I16)
+        .channel_format(ChannelFormat::Mono) // MAX98357 can support stereo, but mono is simpler
+        .sample_rate(44100)
+        .bits_per_sample(BitsPerSample::Bits16)
+        .communication_format(CommunicationFormat::I2S)
+        .use_apll(true);
+
+    let pins = Pins {
+        bclk: Some(18),
+        ws: Some(5),   // LR C(S)
+        dout: Some(21), // for MOSI, or 19
+        din: None,      // Not used for output
+    };
+
+    let mut i2s = I2S::new(I2sPort::Port0, i2s_config, pins)?;
+
+    // Connect to the live MP3 stream
+    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+    // let request = client.request(Method::Get, _default_station_url, &[])?;
+    // let mut response = request.submit()?;
+
+    let response = client.get(_default_station_url)?.submit()?;
+
+    // Read MP3 data from the stream
+    let mut stream = response.reader();
+    let mut buffer = [0_u8; 4096]; // Buffer to read MP3 data
+    let mut decoder = Decoder::new(Cursor::new(Vec::new())); // MP3 decoder
 
     warn!("Server awaiting connection");
 
@@ -376,18 +404,29 @@ fn main() -> Result<()> {
         // Print Time
         info!("Time: {}", formatted);
         // sleep(Duration::from_millis(1000));
+        let bytes_read = stream.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break; // End of stream
+        }
 
+        // Feed the MP3 data chunk to the decoder
+        decoder.reader_mut().get_mut().extend_from_slice(&buffer[..bytes_read]);
+
+        // Decode MP3 frames and write to I2S
+        while let Ok(Frame { data, .. }) = decoder.next_frame() {
+            i2s.write(&data)?; // Write PCM data to I2S
+        }
         // Buffer to hold the data
-        let mut buffer = [0u8; 64];
-        // Read 64 bytes into the buffer
-        let bytes_read = io::try_read_full(&mut response, &mut buffer).map_err(|e| e.0)?;
-        println!(
-            "Read {} bytes from stream: {:?}",
-            bytes_read,
-            &buffer[..bytes_read]
-        );
+        // let mut buffer = [0u8; 64];
+        // // Read 64 bytes into the buffer
+        // let bytes_read = io::try_read_full(&mut response, &mut buffer).map_err(|e| e.0)?;
+        // println!(
+        //     "Read {} bytes from stream: {:?}",
+        //     bytes_read,
+        //     &buffer[..bytes_read]
+        // );
         //mp3_decoder.play_chunk(&buffer[0], bytes_read);
-        let _ = mp3_decoder.play_chunk2(&buffer[..bytes_read], bytes_read);
+        // let _ = mp3_decoder.play_chunk2(&buffer[..bytes_read], bytes_read);
 
         // if (client.available() > 0) {
         //     // The buffer size 64 seems to be optimal. At 32 and 128 the sound might be brassy.

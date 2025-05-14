@@ -41,6 +41,8 @@ esp-idf-svc = { version = "0.51.0", default-features = false }
 esp-idf-sys = "0.36.1"
 futures = "0.3.31"
 log = { version = "0.4", default-features = false }
+libc = { version = "~0.2" }
+minimp3 = "0.5.1" # { git = "https://github.com/Manith-2001/minimp3-rs", rev = "a7a3af9" }
 postcard = "1.1.1"
 rgb-led = { path = "lib/rgb-led" }
 serde = "1.0.219"
