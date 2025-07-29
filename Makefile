@@ -12,7 +12,7 @@ build: ## build
 	cargo build --release
 
 flash-monitor: ## flash and monitor
-	espflash flash --flash-size 16mb --monitor  --partition-table partition-table.bin --erase-parts nvs target/xtensa-esp32s3-espidf/debug/rustdio
+	espflash flash --flash-size 16mb --monitor  --partition-table partition-table.bin --erase-parts nvs target/xtensa-esp32-espidf/debug/rustdio
 
 all: ## build, flash and monitor
 	make build

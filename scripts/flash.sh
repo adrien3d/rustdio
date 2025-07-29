@@ -18,4 +18,4 @@ case "$1" in
     ;;
 esac
 
-web-flash --chip esp32s3 target/xtensa-esp32s3-espidf/${BUILD_MODE}/rustdio
+web-flash --chip esp32 target/xtensa-esp32-espidf/${BUILD_MODE}/rustdio
